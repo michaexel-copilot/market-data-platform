@@ -1,0 +1,292 @@
+import argparse
+import json
+import sys
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+import requests
+
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend for saving to file
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
+import yfinance as yf
+
+ROOT = Path(__file__).parent
+sys.path.insert(0, str(ROOT))
+
+PNG_DIR   = ROOT / "png"
+CACHE_DIR = ROOT / "cache" / "ohlcv"
+
+# Map Hyperliquid symbols to Yahoo Finance tickers.
+# K-prefix tokens represent 1000 × the underlying coin — map to the underlying
+# and apply a ×1000 price multiplier.
+# Rebranded tokens are kept under their still-listed Yahoo Finance ticker.
+YF_SYMBOL_MAP: dict[str, str] = {
+    # K-prefix (kilo-unit) tokens → underlying Yahoo Finance ticker
+    "KBONK":    "BONK-USD",
+    "KDOGS":    "DOGS-USD",
+    "KFLOKI":   "FLOKI-USD",
+    "KLUNC":    "LUNC-USD",
+    "KNEIRO":   "NEIRO-USD",
+    "KPEPE":    "PEPE-USD",
+    "KSHIB":    "SHIB-USD",
+    # Rebranded tokens — use the ticker Yahoo Finance still lists
+    "FTM":      "FTM-USD",      # Fantom (rebranded to Sonic / S)
+    "MATIC":    "POL-USD",      # Polygon MATIC → POL
+    "RNDR":     "RNDR-USD",     # Render (old ticker still on YF)
+    "NEIROETH": "NEIRO-USD",    # Neiro on Ethereum
+}
+
+# Symbols whose HL price = Yahoo price × 1000
+K_SCALE_SET: set[str] = {
+    "KBONK", "KDOGS", "KFLOKI", "KLUNC", "KNEIRO", "KPEPE", "KSHIB",
+}
+
+# CoinGecko coin IDs for symbols not listed on Yahoo Finance.
+# Source key format: "cg:{coin_id}" (e.g. "cg:hyperliquid").
+CG_COIN_ID_MAP: dict[str, str] = {
+    "CC":     "canton-network",          # Canton
+    "HYPE":   "hyperliquid",             # Hyperliquid
+    "SUI":    "sui",                     # Sui — YF "SUI-USD" is Salmonation (wrong coin)
+    "WLFI":   "world-liberty-financial", # World Liberty Financial
+    "MNT":    "mantle",                  # Mantle
+    "TAO":    "bittensor",               # Bittensor
+    "KPEPE":  "pepe",                    # KPEPE = 1000 × PEPE (scaled by K_SCALE_SET)
+    "POL":    "polygon-ecosystem-token", # Polygon POL (rebranded from MATIC)
+    "RNDR":   "render-token",            # Render
+    "PUMP":   "pump-fun",                # Pump.fun
+    "MORPHO": "morpho",                  # Morpho
+    "STABLE": "stable-2",               # Stable
+    "ZRO":    "layerzero",               # LayerZero
+    "PENGU":  "pudgy-penguins",          # Pudgy Penguins
+    "IMX":    "immutable-x",             # Immutable X
+    "SPX":    "spx6900",                 # SPX6900
+    "ZK":     "zksync",                  # zkSync
+    "COMP":   "compound-governance-token", # Compound
+    "VVV":    "venice-token",            # Venice Token
+    "FTM":    "fantom",                  # Fantom
+    "S":      "sonic-3",                 # Sonic (rebranded from FTM)
+    "STG":    "stargate-finance",        # Stargate
+    "ZORA":   "zora",                    # Zora
+}
+
+CG_OHLC_URL = "https://api.coingecko.com/api/v3/coins/{id}/ohlc"
+
+
+def get_data_source(hl_symbol: str) -> str:
+    """Return the human-readable OHLCV data source for a given HL symbol."""
+    key, _ = resolve_source_key(hl_symbol)
+    return "CoinGecko" if key.startswith("cg:") else "Yahoo Finance"
+
+
+def resolve_source_key(hl_symbol: str) -> tuple[str, float]:
+    """
+    Return (source_key, price_multiplier) for the given HL symbol.
+    source_key is either a Yahoo Finance ticker (e.g. "SOL-USD") or
+    a CoinGecko key prefixed with "cg:" (e.g. "cg:hyperliquid").
+    """
+    sym = hl_symbol.upper()
+    multiplier = 1000.0 if sym in K_SCALE_SET else 1.0
+    if sym in CG_COIN_ID_MAP:
+        return f"cg:{CG_COIN_ID_MAP[sym]}", multiplier
+    ticker = YF_SYMBOL_MAP.get(sym, f"{sym}-USD")
+    return ticker, multiplier
+
+
+# Keep old name as alias so existing callers don't break
+def resolve_yf_ticker(hl_symbol: str) -> tuple[str, float]:
+    return resolve_source_key(hl_symbol)
+
+
+def _cache_path(yf_ticker: str) -> Path:
+    """Return the cache file path for today's OHLCV data for the given ticker."""
+    safe = yf_ticker.replace("/", "_")
+    return CACHE_DIR / f"{safe}_{date.today()}.json"
+
+
+def _load_cache(yf_ticker: str) -> list[dict] | None:
+    path = _cache_path(yf_ticker)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+        # Restore datetime objects from ISO strings
+        for c in raw:
+            c["date"] = datetime.fromisoformat(c["date"])
+        return raw
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _save_cache(yf_ticker: str, candles: list[dict]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _cache_path(yf_ticker)
+    serialisable = [
+        {**c, "date": c["date"].isoformat()}
+        for c in candles
+    ]
+    path.write_text(json.dumps(serialisable))
+
+
+def _fetch_from_yf(yf_ticker: str) -> list[dict]:
+    """Fetch daily OHLCV candles from Yahoo Finance."""
+    hist = yf.Ticker(yf_ticker).history(period="1y", interval="1d", auto_adjust=True)
+    if hist.empty:
+        raise ValueError(f"No data returned from Yahoo Finance for ticker '{yf_ticker}'")
+
+    candles = []
+    for ts, row in hist.iterrows():
+        dt = ts.to_pydatetime()
+        candles.append({
+            "date":  dt,
+            "open":  float(row["Open"]),
+            "high":  float(row["High"]),
+            "low":   float(row["Low"]),
+            "close": float(row["Close"]),
+        })
+    candles.sort(key=lambda c: c["date"])
+    return candles
+
+
+def _fetch_from_coingecko(cg_id: str) -> list[dict]:
+    """Fetch up to 365 days of daily OHLC candles from CoinGecko (free tier)."""
+    url = CG_OHLC_URL.format(id=cg_id)
+    resp = requests.get(url, params={"vs_currency": "usd", "days": "365"}, timeout=20)
+    resp.raise_for_status()
+    raw = resp.json()
+    if not raw or isinstance(raw, dict):
+        raise ValueError(f"No OHLC data from CoinGecko for '{cg_id}': {raw}")
+
+    candles = []
+    for entry in raw:
+        # CoinGecko format: [timestamp_ms, open, high, low, close]
+        ts_ms, o, h, l, c = entry
+        candles.append({
+            "date":  datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc),
+            "open":  o,
+            "high":  h,
+            "low":   l,
+            "close": c,
+        })
+    candles.sort(key=lambda c: c["date"])
+    return candles
+
+
+def fetch_ohlcv(source_key: str) -> list[dict]:
+    """
+    Fetch ~365 daily OHLCV candles.  source_key is either a Yahoo Finance
+    ticker (e.g. "SOL-USD") or a CoinGecko key prefixed with "cg:"
+    (e.g. "cg:hyperliquid").  Results are cached to disk for the current day.
+    Returns a list of dicts sorted by date with keys: date, open, high, low, close.
+    """
+    cached = _load_cache(source_key)
+    if cached is not None:
+        print(f"  (OHLCV loaded from cache for {source_key})")
+        return cached
+
+    if source_key.startswith("cg:"):
+        cg_id = source_key[3:]
+        print(f"  (fetching from CoinGecko: {cg_id})")
+        candles = _fetch_from_coingecko(cg_id)
+    else:
+        candles = _fetch_from_yf(source_key)
+
+    _save_cache(source_key, candles)
+    return candles
+
+
+def sma(values: list[float], period: int) -> list[float | None]:
+    """Simple moving average. Returns None for the first (period-1) entries."""
+    result: list[float | None] = [None] * (period - 1)
+    for i in range(period - 1, len(values)):
+        window = values[i - period + 1 : i + 1]
+        result.append(sum(window) / period)
+    return result
+
+
+def draw_chart(hl_symbol: str, sma_period: int = 44) -> Path:
+    source_key, multiplier = resolve_source_key(hl_symbol)
+
+    print(f"Fetching OHLCV for {source_key} (×{multiplier:.0f}) …")
+    candles = fetch_ohlcv(source_key)
+    if not candles:
+        raise ValueError(f"No OHLCV data returned for {hl_symbol}")
+
+    print(f"  Got {len(candles)} daily candles.")
+
+    # Apply price multiplier (K-prefix tokens)
+    if multiplier != 1.0:
+        for c in candles:
+            c["open"]  *= multiplier
+            c["high"]  *= multiplier
+            c["low"]   *= multiplier
+            c["close"] *= multiplier
+
+    dates  = [c["date"] for c in candles]
+    closes = [c["close"] for c in candles]
+    highs  = [c["high"]  for c in candles]
+    lows   = [c["low"]   for c in candles]
+
+    sma_close = sma(closes, sma_period)
+    sma_high  = sma(highs,  sma_period)
+    sma_low   = sma(lows,   sma_period)
+
+    # --- Build chart -----------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(30, 20), dpi=100)
+
+    # Main line: daily close, black, 1 px
+    ax.plot(dates, closes, color="black", linewidth=1, label="Close")
+
+    # SMA lines — only plot from the first non-None index
+    def plot_sma(ax, dates, sma_values, color, label):
+        pairs = [(d, v) for d, v in zip(dates, sma_values) if v is not None]
+        if pairs:
+            d_, v_ = zip(*pairs)
+            ax.plot(d_, v_, color=color, linewidth=1, label=label)
+
+    plot_sma(ax, dates, sma_high,  "#99ccff", f"SMA{sma_period} High")
+    plot_sma(ax, dates, sma_low,   "#327819", f"SMA{sma_period} Low")
+    plot_sma(ax, dates, sma_close, "#bd44bd", f"SMA{sma_period} Close")
+
+    # X-axis: tick at the 1st of each month, label as "Mon YYYY"
+    ax.xaxis.set_major_locator(mdates.MonthLocator(bymonthday=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+
+    # Y-axis: tight to [min(low), max(high)] across all candles, no padding
+    y_min = min(lows)
+    y_max = max(highs)
+    ax.set_ylim(y_min, y_max)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.6g"))
+
+    # Labels, title, legend
+    ax.set_title(f"{hl_symbol} — Daily OHLC (last 12 months)", fontsize=18)
+    ax.set_xlabel("Date", fontsize=12)
+    ax.set_ylabel("Price (USD)", fontsize=12)
+    ax.legend(loc="upper left", fontsize=11)
+    ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.5)
+
+    # --- Save ------------------------------------------------------------------
+    PNG_DIR.mkdir(exist_ok=True)
+    now = datetime.now()
+    filename = f"{hl_symbol.upper()}USD_{now.strftime('%Y-%m-%d')}_SMA{sma_period}_{now.strftime('%H-%M-%S')}.png"
+    out_path = PNG_DIR / filename
+    fig.savefig(out_path, dpi=100, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {out_path}")
+    return out_path
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Draw a 12-month daily OHLC price chart with SMA-44 overlays."
+    )
+    parser.add_argument(
+        "symbol",
+        metavar="SYMBOL",
+        help="Hyperliquid base symbol to chart, e.g. SOL, BTC, KSHIB",
+    )
+    args = parser.parse_args()
+    draw_chart(args.symbol)

@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Generated output — preserve directory structure via .gitkeep
+cache/*
+!cache/.gitkeep
+png/*
+!png/.gitkeep
+
+# Feature worktrees (all branches checked out under .worktrees/)
+.worktrees/
+
+# Secrets
+coinMarketCapKey.py
+.env

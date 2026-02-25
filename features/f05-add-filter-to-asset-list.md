@@ -1,0 +1,1 @@
+add a filter to the asset list in the left pane. for every typed letter update the filtered list so i can choose the one i want.

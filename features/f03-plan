@@ -1,0 +1,47 @@
+# Plan: Batch Chart Script + FastAPI/HTMX Web App
+
+Two deliverables: (1) a `draw-all-charts` CLI that renders PNGs for every symbol in the CSV, and (2) a FastAPI + HTMX web app with a two-pane layout — ranked asset list on the left, chart + fundamentals on the right.
+
+## Steps
+
+1. **Add dependencies** via `uv add fastapi "uvicorn[standard]" jinja2` — FastAPI for the backend, Uvicorn as the ASGI server, Jinja2 for HTML templating. All other deps (yfinance, matplotlib, requests) are already present.
+
+2. **Create `draw_all_charts.py`** with a `main()` that:
+   - Reads every `base` symbol from `hl_testnet_pairs_with_mcap.csv`
+   - Calls the existing `draw_chart()` from `draw_chart.py` for each symbol
+   - Catches and logs per-symbol errors without aborting the whole batch
+   - Prints a summary (`N succeeded / M failed`) at the end
+
+3. **Register `draw-all-charts` entrypoint** in `pyproject.toml`: `draw-all-charts = "draw_all_charts:main"`
+
+4. **Add a `fetch_cmc_info(cmc_symbol)` helper** in a new `cmc_info.py` module that calls CMC `/v2/cryptocurrency/info` (free tier) and returns:
+   - `date_added` (the "release date")
+   - `platform.name` if present (e.g. `"Ethereum"`, `"Solana"`) — `None` for native L1s
+   - `platform.token_address` for completeness
+
+5. **Create `templates/` directory** with two Jinja2 HTML files:
+   - `templates/index.html` — full Bootstrap 5 page (CDN). Two-column layout: scrollable left pane (`#asset-list`) + content right pane (`#detail-pane`). Each list item renders `#{rank} SYMBOL — $X.X B` with `hx-get="/asset/{symbol}"`, `hx-target="#detail-pane"`, `hx-swap="innerHTML"`. HTMX loaded from CDN.
+   - `templates/asset_detail.html` — HTMX partial fragment: asset title, market cap, release date, chain/platform block (shown only when platform is not null), and an `<img>` pointing to `/png/{filename}`.
+
+6. **Create `web.py`** (FastAPI app):
+   - **Startup**: load `hl_testnet_pairs_with_mcap.csv` into a list of asset dicts (rank, symbol, cmc_symbol, market_cap_usd) — already sorted descending by market cap.
+   - **`GET /`** → renders `index.html` with the full asset list.
+   - **`GET /asset/{symbol}`** → (a) look for an existing `{SYMBOL}USD_{TODAY}_*.png` in `png/`; reuse the newest match or call `draw_chart(symbol)` to generate; (b) call `fetch_cmc_info(cmc_symbol)`; (c) return rendered `asset_detail.html` fragment.
+   - **`/png` static mount** via `app.mount("/png", StaticFiles(directory="png"))` to serve chart images.
+   - **`main()`** calls `uvicorn.run("web:app", host="0.0.0.0", port=8000, reload=True)`.
+
+7. **Register `serve` entrypoint** in `pyproject.toml`: `serve = "web:main"`
+
+8. **Update `only-include`** in `pyproject.toml` to add `draw_all_charts.py`, `web.py`, `cmc_info.py`, and `templates/`.
+
+## Verification
+
+- `uv run draw-all-charts` — watch all 229 symbols process; check `png/` fills up; note any failed symbols
+- `uv run serve` — open `http://localhost:8000`; left pane shows ranked list; clicking SOL loads chart + market cap + release date; clicking KSHIB shows chain = Solana (or Ethereum), price scaled ×1000
+
+## Decisions
+
+- On-demand chart generation: click triggers render, reuse if already generated today
+- Bootstrap 5 via CDN: no build step required
+- CMC `/v2/cryptocurrency/info` for fundamentals: covers release date and chain platform reliably
+- `cmc_info.py` as a separate module: keeps `web.py` clean and allows reuse

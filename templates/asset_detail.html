@@ -1,0 +1,112 @@
+<!-- asset_detail.html — HTMX partial returned by GET /asset/{symbol} -->
+<div class="mb-3 d-flex align-items-center gap-3">
+  <h2 class="mb-0">{{ info.name }} <small class="text-muted fs-5">({{ symbol }})</small></h2>
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    <label class="form-label mb-0 text-muted" style="font-size:1.3rem">SMA period</label>
+    <input
+      id="sma-input"
+      type="number"
+      class="form-control"
+      style="width:120px; font-size:1.3rem"
+      min="1" max="500"
+      value="{{ sma_period }}"
+      hx-get="/asset/{{ symbol }}"
+      hx-target="#detail-pane"
+      hx-swap="innerHTML"
+      hx-include="#sma-input"
+      name="sma"
+      hx-trigger="change"
+    />
+  </div>
+</div>
+<script>
+(function () {
+  const inp = document.getElementById('sma-input');
+  if (!inp) return;
+  inp.addEventListener('keydown', function (e) {
+    let dir = 0;
+    if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+    if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+    if (dir === 0) return;
+
+    e.preventDefault();
+
+    const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
+    const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
+    inp.value = next;
+    inp.dispatchEvent(new Event('change'));
+  });
+})();
+</script>
+
+<div class="row g-3 mb-4">
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Market Cap</div>
+        <div class="fw-semibold fs-6">
+          {% if market_cap_usd %}
+            ${{ "{:,.2f}".format(market_cap_usd / 1e9) }}B
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Launch Date</div>
+        <div class="fw-semibold fs-6">
+          {% if info.date_launched %}
+            {{ info.date_launched[:10] }}
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">OHLC Source</div>
+        <div class="fw-semibold fs-6">{{ data_source }}</div>
+      </div>
+    </div>
+  </div>
+
+  {% if info.platform %}
+  <div class="col-auto">
+    <div class="card shadow-sm border-info" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Chain / Platform</div>
+        <div class="fw-semibold fs-6">{{ info.platform }}</div>
+        {% if info.token_address %}
+        <div class="text-muted" style="font-size:0.65rem; word-break:break-all">
+          {{ info.token_address }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% if chart_filename %}
+<div class="text-center">
+  <img
+    src="/png/{{ chart_filename }}"
+    alt="{{ symbol }} chart"
+    class="img-fluid rounded shadow-sm"
+    style="max-width:100%"
+  />
+</div>
+{% else %}
+<div class="alert alert-warning">Chart could not be generated for {{ symbol }}.</div>
+{% endif %}
