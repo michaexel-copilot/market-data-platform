@@ -44,10 +44,29 @@
       display: flex;
       flex-direction: column;
     }
-    .panel { display: flex; flex-direction: column; overflow: hidden; }
+    .panel { display: flex; flex-direction: column; overflow: hidden; min-height: 36px; }
     #panel-main { flex: 3; }
-    #panel-favs { flex: 6; border-top: 2px solid #dee2e6; }
-    #panel-ignr { flex: 1; border-top: 2px solid #dee2e6; }
+    #panel-favs { flex: 6; }
+    #panel-ignr { flex: 1; }
+
+    /* Draggable splitters between panels */
+    .panel-splitter {
+      flex: 0 0 6px;
+      background: #dee2e6;
+      cursor: ns-resize;
+      position: relative;
+      user-select: none;
+    }
+    .panel-splitter::after {
+      content: '';
+      position: absolute;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: 24px; height: 4px;
+      border-top: 1px solid #adb5bd;
+      border-bottom: 1px solid #adb5bd;
+    }
+    .panel-splitter:hover, .panel-splitter.dragging { background: #6ea8fe; }
 
     .panel-header {
       flex: 0 0 auto;
@@ -182,6 +201,8 @@
         </div>
       </div>
 
+      <div class="panel-splitter" id="split-main-favs"></div>
+
       <!-- Favourites list (60%) -->
       <div id="panel-favs" class="panel">
         <div class="panel-header">
@@ -191,6 +212,8 @@
         </div>
         <div id="fav-list" class="panel-body"></div>
       </div>
+
+      <div class="panel-splitter" id="split-favs-ignr"></div>
 
       <!-- Ignore list (10%) -->
       <div id="panel-ignr" class="panel">
@@ -421,6 +444,87 @@ document.addEventListener('keydown', function(e) {
     activateItem(next);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Panel splitter drag logic
+// ---------------------------------------------------------------------------
+(function () {
+  const HEIGHTS_KEY = 'panelHeights';
+  const MIN_H = 36;
+
+  const panels = {
+    main: document.getElementById('panel-main'),
+    favs: document.getElementById('panel-favs'),
+    ignr: document.getElementById('panel-ignr'),
+  };
+
+  function applyHeights(h) {
+    panels.main.style.flex = `0 0 ${h.main}px`;
+    panels.favs.style.flex = `0 0 ${h.favs}px`;
+    panels.ignr.style.flex = `0 0 ${h.ignr}px`;
+  }
+
+  function saveHeights() {
+    localStorage.setItem(HEIGHTS_KEY, JSON.stringify({
+      main: panels.main.offsetHeight,
+      favs: panels.favs.offsetHeight,
+      ignr: panels.ignr.offsetHeight,
+    }));
+  }
+
+  function initPanelHeights() {
+    const stored = localStorage.getItem(HEIGHTS_KEY);
+    if (stored) {
+      try { applyHeights(JSON.parse(stored)); return; } catch (_) {}
+    }
+    // Snapshot the browser's initial flex layout after first paint
+    requestAnimationFrame(() => {
+      applyHeights({
+        main: panels.main.offsetHeight,
+        favs: panels.favs.offsetHeight,
+        ignr: panels.ignr.offsetHeight,
+      });
+    });
+  }
+
+  function makeDraggable(splitterId, topPanel, botPanel) {
+    const splitter = document.getElementById(splitterId);
+    let dragging = false, startY = 0, topStart = 0, botStart = 0;
+
+    splitter.addEventListener('mousedown', function (e) {
+      dragging = true;
+      startY   = e.clientY;
+      topStart = topPanel.offsetHeight;
+      botStart = botPanel.offsetHeight;
+      splitter.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ns-resize';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function (e) {
+      if (!dragging) return;
+      const dy     = e.clientY - startY;
+      const newTop = Math.max(MIN_H, topStart + dy);
+      const newBot = Math.max(MIN_H, botStart - dy);
+      topPanel.style.flex = `0 0 ${newTop}px`;
+      botPanel.style.flex = `0 0 ${newBot}px`;
+    });
+
+    document.addEventListener('mouseup', function () {
+      if (!dragging) return;
+      dragging = false;
+      splitter.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      saveHeights();
+    });
+  }
+
+  initPanelHeights();
+  makeDraggable('split-main-favs', panels.main, panels.favs);
+  makeDraggable('split-favs-ignr', panels.favs, panels.ignr);
+})();
 
 // ---------------------------------------------------------------------------
 // Init — load state from server, then render
