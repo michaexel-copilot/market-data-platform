@@ -1,0 +1,1 @@
+in the left pane place the amrket cap under the symbol name and show 3 decimal numbers. Unit can be still "B".

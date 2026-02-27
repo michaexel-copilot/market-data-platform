@@ -13,7 +13,7 @@
       hx-get="/asset/{{ symbol }}"
       hx-target="#detail-pane"
       hx-swap="innerHTML"
-      hx-include="#sma-input"
+      hx-include="#pos-input"
       name="sma"
       hx-trigger="change"
     />
@@ -98,15 +98,115 @@
 
 </div>
 
-{% if chart_filename %}
-<div class="text-center">
-  <img
-    src="/png/{{ chart_filename }}"
-    alt="{{ symbol }} chart"
-    class="img-fluid rounded shadow-sm"
-    style="max-width:100%"
-  />
+<!-- Two-column: chart (left) + strategy panel (right) -->
+<div class="d-flex gap-3 align-items-start mt-2">
+
+  <!-- Chart -->
+  <div style="flex: 0 0 63%; min-width: 0">
+    {% if chart_filename %}
+    <img
+      src="/png/{{ chart_filename }}"
+      alt="{{ symbol }} chart"
+      class="img-fluid rounded shadow-sm"
+      style="max-width:100%"
+    />
+    {% else %}
+    <div class="alert alert-warning">Chart could not be generated for {{ symbol }}.</div>
+    {% endif %}
+  </div>
+
+  <!-- Strategy panel -->
+  <div style="flex: 1; min-width: 0">
+
+    <!-- Position size spinner -->
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">Position ($)</label>
+      <input
+        id="pos-input"
+        type="number"
+        class="form-control"
+        style="width:130px; font-size:1.1rem"
+        min="100" step="100"
+        value="{{ pos_usd }}"
+        name="pos"
+        hx-get="/asset/{{ symbol }}"
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+        hx-include="#sma-input"
+        hx-trigger="change"
+      />
+    </div>
+
+    <!-- Trades table -->
+    {% if trades %}
+    <h6 class="fw-semibold mb-2">Short Strategy Trades &mdash; SMA-{{ sma_period }} Low</h6>
+    <div style="max-height:70vh; overflow-y:auto">
+    <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
+      <thead class="table-dark sticky-top">
+        <tr>
+          <th>#</th>
+          <th>Entry Date</th>
+          <th>Entry $</th>
+          <th>Exit Date</th>
+          <th>Exit $</th>
+          <th>P&amp;L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trade in trades %}
+        <tr
+          style="cursor:pointer"
+          {% if highlight == trade.entry_date %}class="table-primary"{% endif %}
+          hx-get="/asset/{{ symbol }}"
+          hx-target="#detail-pane"
+          hx-swap="innerHTML"
+          hx-include="#sma-input, #pos-input"
+          hx-vals='{"highlight": "{{ trade.entry_date }}"}'
+        >
+          <td>{{ loop.index }}</td>
+          <td>{{ trade.entry_date }}</td>
+          <td>${{ "%.4g" | format(trade.entry_price) }}</td>
+          <td>{{ trade.exit_date if trade.exit_date else "\u2014" }}</td>
+          <td>{{ ("$%.4g" | format(trade.exit_price)) if trade.exit_price else "\u2014" }}</td>
+          <td class="
+            {%- if trade.is_open -%}text-primary fw-semibold
+            {%- elif trade.pnl is not none -%}
+              {%- if trade.pnl >= 0 -%}text-success fw-semibold{%- else -%}text-danger fw-semibold{%- endif -%}
+            {%- endif -%}">
+            {%- if trade.is_open -%}
+              {%- if trade.virtual_pnl is not none -%}
+                ~{{ "%+.2f" | format(trade.virtual_pnl) }}
+              {%- else -%}
+                \u2014
+              {%- endif -%}
+            {%- elif trade.pnl is not none -%}
+              {{ "%+.2f" | format(trade.pnl) }}
+            {%- else -%}
+              \u2014
+            {%- endif -%}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        {% set total_pnl = namespace(value=0) %}
+        {% for trade in trades %}
+          {% if not trade.is_open and trade.pnl is not none %}
+            {% set total_pnl.value = total_pnl.value + trade.pnl %}
+          {% endif %}
+        {% endfor %}
+        <tr class="fw-bold">
+          <td colspan="5" class="text-end">Total P&amp;L</td>
+          <td class="{% if total_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}">
+            {{ "%+.2f" | format(total_pnl.value) }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mt-2">No trade signals in the last 12 months.</p>
+    {% endif %}
+
+  </div>
 </div>
-{% else %}
-<div class="alert alert-warning">Chart could not be generated for {{ symbol }}.</div>
-{% endif %}

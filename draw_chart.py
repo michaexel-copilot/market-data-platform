@@ -206,32 +206,118 @@ def sma(values: list[float], period: int) -> list[float | None]:
     return result
 
 
-def draw_chart(hl_symbol: str, sma_period: int = 44) -> Path:
+def prepare_chart_data(
+    hl_symbol: str,
+    sma_period: int = 44,
+) -> tuple[list[dict], list, list, list]:
+    """
+    Fetch & scale candles, compute SMA arrays.
+    Returns (candles, sma_close, sma_high, sma_low).
+    Each call returns a fresh list (OHLCV cache is re-read every call).
+    """
     source_key, multiplier = resolve_source_key(hl_symbol)
-
-    print(f"Fetching OHLCV for {source_key} (×{multiplier:.0f}) …")
+    print(f"Fetching OHLCV for {source_key} (\u00d7{multiplier:.0f}) \u2026")
     candles = fetch_ohlcv(source_key)
     if not candles:
         raise ValueError(f"No OHLCV data returned for {hl_symbol}")
-
     print(f"  Got {len(candles)} daily candles.")
-
-    # Apply price multiplier (K-prefix tokens)
     if multiplier != 1.0:
         for c in candles:
             c["open"]  *= multiplier
             c["high"]  *= multiplier
             c["low"]   *= multiplier
             c["close"] *= multiplier
+    closes = [c["close"] for c in candles]
+    highs  = [c["high"]  for c in candles]
+    lows   = [c["low"]   for c in candles]
+    return candles, sma(closes, sma_period), sma(highs, sma_period), sma(lows, sma_period)
+
+
+def backtest_strategy(
+    candles: list[dict],
+    sma_low: list[float | None],
+    position_size_usd: float = 100.0,
+) -> list[dict]:
+    """
+    Short strategy backtest (daily close prices).
+    Entry  : close crosses below sma_low (was >= yesterday, now <).
+    Stop   : close >= entry x 1.10  -> exit at stop_loss price  (loss).
+    Profit : close >= sma_low[i]    -> exit at sma_low[i]       (profit when sma fell below entry).
+    No new entry while a position is open.  Returns all trades (incl. open).
+    """
+    trades: list[dict] = []
+    in_position = False
+    entry_trade: dict | None = None
+
+    for i in range(1, len(candles)):
+        sl_prev = sma_low[i - 1]
+        sl_curr = sma_low[i]
+        if sl_prev is None or sl_curr is None:
+            continue
+        c_curr = candles[i]
+        c_prev = candles[i - 1]
+
+        if not in_position:
+            if c_prev["close"] >= sl_prev and c_curr["close"] < sl_curr:
+                entry_price = c_curr["close"]
+                entry_trade = {
+                    "entry_date":  c_curr["date"],
+                    "entry_price": entry_price,
+                    "stop_loss":   entry_price * 1.10,
+                    "entry_idx":   i,
+                    "exit_date":   None,
+                    "exit_price":  None,
+                    "exit_idx":    None,
+                    "pnl":         None,
+                    "is_open":     True,
+                }
+                in_position = True
+        else:
+            assert entry_trade is not None
+            if c_curr["close"] >= entry_trade["stop_loss"]:
+                exit_price = entry_trade["stop_loss"]
+                entry_trade.update({
+                    "exit_date":  c_curr["date"],
+                    "exit_price": exit_price,
+                    "exit_idx":   i,
+                    "pnl": (entry_trade["entry_price"] - exit_price)
+                           / entry_trade["entry_price"] * position_size_usd,
+                    "is_open": False,
+                })
+                trades.append(entry_trade)
+                entry_trade = None
+                in_position = False
+            elif c_curr["close"] >= sl_curr and sl_curr < entry_trade["entry_price"]:
+                exit_price = sl_curr
+                entry_trade.update({
+                    "exit_date":  c_curr["date"],
+                    "exit_price": exit_price,
+                    "exit_idx":   i,
+                    "pnl": (entry_trade["entry_price"] - exit_price)
+                           / entry_trade["entry_price"] * position_size_usd,
+                    "is_open": False,
+                })
+                trades.append(entry_trade)
+                entry_trade = None
+                in_position = False
+
+    if in_position and entry_trade:
+        trades.append(entry_trade)
+
+    return trades
+
+
+def draw_chart(
+    hl_symbol: str,
+    sma_period: int = 44,
+    highlight: dict | None = None,
+) -> Path:
+    candles, sma_close, sma_high, sma_low = prepare_chart_data(hl_symbol, sma_period)
 
     dates  = [c["date"] for c in candles]
     closes = [c["close"] for c in candles]
     highs  = [c["high"]  for c in candles]
     lows   = [c["low"]   for c in candles]
-
-    sma_close = sma(closes, sma_period)
-    sma_high  = sma(highs,  sma_period)
-    sma_low   = sma(lows,   sma_period)
 
     # --- Build chart -----------------------------------------------------------
     fig, ax = plt.subplots(figsize=(30, 20), dpi=100)
@@ -249,6 +335,18 @@ def draw_chart(hl_symbol: str, sma_period: int = 44) -> Path:
     plot_sma(ax, dates, sma_high,  "#99ccff", f"SMA{sma_period} High")
     plot_sma(ax, dates, sma_low,   "#327819", f"SMA{sma_period} Low")
     plot_sma(ax, dates, sma_close, "#bd44bd", f"SMA{sma_period} Close")
+
+    # Crosshairs for highlighted trade
+    if highlight:
+        ei = highlight.get("entry_idx")
+        xi = highlight.get("exit_idx")
+        if ei is not None and ei < len(candles):
+            ax.axvline(x=dates[ei], color="#0055cc", linewidth=1.5, linestyle="--", alpha=0.9, label="Entry")
+            ax.axhline(y=closes[ei], color="#0055cc", linewidth=1.5, linestyle="--", alpha=0.9)
+        if xi is not None and xi < len(candles):
+            xprice = highlight.get("exit_price") or closes[xi]
+            ax.axvline(x=dates[xi], color="#cc5500", linewidth=1.5, linestyle="--", alpha=0.9, label="Exit")
+            ax.axhline(y=xprice,    color="#cc5500", linewidth=1.5, linestyle="--", alpha=0.9)
 
     # X-axis: tick at the 1st of each month, label as "Mon YYYY"
     ax.xaxis.set_major_locator(mdates.MonthLocator(bymonthday=1))
@@ -270,8 +368,13 @@ def draw_chart(hl_symbol: str, sma_period: int = 44) -> Path:
 
     # --- Save ------------------------------------------------------------------
     PNG_DIR.mkdir(exist_ok=True)
-    now = datetime.now()
-    filename = f"{hl_symbol.upper()}USD_{now.strftime('%Y-%m-%d')}_SMA{sma_period}_{now.strftime('%H-%M-%S')}.png"
+    today_str = date.today().isoformat()
+    if highlight and highlight.get("entry_idx") is not None:
+        entry_date_str = candles[highlight["entry_idx"]]["date"].strftime("%Y-%m-%d")
+        filename = f"{hl_symbol.upper()}USD_{today_str}_SMA{sma_period}_hi_{entry_date_str}.png"
+    else:
+        now = datetime.now()
+        filename = f"{hl_symbol.upper()}USD_{today_str}_SMA{sma_period}_{now.strftime('%H-%M-%S')}.png"
     out_path = PNG_DIR / filename
     fig.savefig(out_path, dpi=100, bbox_inches="tight")
     plt.close(fig)

@@ -20,7 +20,7 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 from cmc_info import fetch_cmc_info          # noqa: E402
-from draw_chart import draw_chart, get_data_source  # noqa: E402
+from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 
 CSV_PATH  = ROOT / "hl_testnet_pairs_with_mcap.csv"
 PNG_DIR   = ROOT / "png"
@@ -62,10 +62,13 @@ def _today_prefix(symbol: str, sma_period: int) -> str:
 
 
 def _find_existing_chart(symbol: str, sma_period: int) -> str | None:
-    """Return the filename (not path) of the newest chart for today, or None."""
+    """Return the filename (not path) of the newest non-highlighted chart for today, or None."""
     prefix = _today_prefix(symbol, sma_period)
     PNG_DIR.mkdir(exist_ok=True)
-    matches = sorted(PNG_DIR.glob(f"{prefix}_*.png"), reverse=True)
+    matches = sorted(
+        [f for f in PNG_DIR.glob(f"{prefix}_*.png") if "_hi_" not in f.name],
+        reverse=True,
+    )
     return matches[0].name if matches else None
 
 
@@ -82,6 +85,22 @@ def _get_or_create_chart(symbol: str, sma_period: int) -> str | None:
         return None
 
 
+def _get_or_create_highlighted_chart(
+    symbol: str, sma_period: int, highlight: dict
+) -> str | None:
+    """Generate (or reuse today's) chart PNG with entry/exit crosshairs."""
+    entry_date_str = highlight["entry_date"].strftime("%Y-%m-%d")
+    filename = f"{symbol.upper()}USD_{date.today()}_SMA{sma_period}_hi_{entry_date_str}.png"
+    if (PNG_DIR / filename).exists():
+        return filename
+    try:
+        path = draw_chart(symbol, sma_period=sma_period, highlight=highlight)
+        return path.name
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] Could not generate highlighted chart for {symbol}: {exc}")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -95,14 +114,58 @@ async def index(request: Request) -> HTMLResponse:
 
 
 @app.get("/asset/{symbol}", response_class=HTMLResponse)
-async def asset_detail(request: Request, symbol: str, sma: int = 44) -> HTMLResponse:
+async def asset_detail(
+    request: Request,
+    symbol: str,
+    sma: int = 44,
+    pos: int = 100,
+    highlight: str | None = None,
+) -> HTMLResponse:
     sym_upper = symbol.upper()
     asset = ASSET_BY_SYMBOL.get(sym_upper)
-
     cmc_symbol = asset["cmc_symbol"] if asset else sym_upper
 
     info = fetch_cmc_info(cmc_symbol)
-    chart_filename = _get_or_create_chart(sym_upper, sma_period=sma)
+
+    # Compute candles + SMAs for backtest
+    try:
+        candles, _, _, sma_low_vals = prepare_chart_data(sym_upper, sma)
+        raw_trades = backtest_strategy(candles, sma_low_vals, position_size_usd=float(pos))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] backtest failed for {sym_upper}: {exc}")
+        raw_trades = []
+
+    # Resolve highlighted trade (if any)
+    highlight_trade: dict | None = None
+    if highlight and raw_trades:
+        highlight_trade = next(
+            (t for t in raw_trades if t["entry_date"].strftime("%Y-%m-%d") == highlight),
+            None,
+        )
+
+    if highlight_trade:
+        chart_filename = _get_or_create_highlighted_chart(sym_upper, sma, highlight_trade)
+    else:
+        chart_filename = _get_or_create_chart(sym_upper, sma)
+
+    # Format trades for template (convert datetimes to strings)
+    last_close = candles[-1]["close"] if candles else None
+    trades = [
+        {
+            "entry_date":   t["entry_date"].strftime("%Y-%m-%d"),
+            "entry_price":  t["entry_price"],
+            "exit_date":    t["exit_date"].strftime("%Y-%m-%d") if t["exit_date"] else None,
+            "exit_price":   t["exit_price"],
+            "pnl":          t["pnl"],
+            "is_open":      t["is_open"],
+            "virtual_pnl":  (
+                (t["entry_price"] - last_close) / t["entry_price"] * float(pos)
+                if t["is_open"] and last_close is not None
+                else None
+            ),
+        }
+        for t in raw_trades
+    ]
 
     return TEMPLATES.TemplateResponse(
         "asset_detail.html",
@@ -114,6 +177,9 @@ async def asset_detail(request: Request, symbol: str, sma: int = 44) -> HTMLResp
             "chart_filename": chart_filename,
             "data_source":    get_data_source(sym_upper),
             "sma_period":     sma,
+            "pos_usd":        pos,
+            "trades":         trades,
+            "highlight":      highlight,
         },
     )
 
