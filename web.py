@@ -12,7 +12,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from cmc_info import fetch_cmc_info          # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
+from lists_db import add_item, get_lists, remove_item  # noqa: E402
 
 CSV_PATH  = ROOT / "hl_testnet_pairs_with_mcap.csv"
 PNG_DIR   = ROOT / "png"
@@ -99,6 +100,39 @@ def _get_or_create_highlighted_chart(
     except Exception as exc:  # noqa: BLE001
         print(f"[web] Could not generate highlighted chart for {symbol}: {exc}")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Lists API (favourites & ignored)
+# ---------------------------------------------------------------------------
+
+@app.get("/lists")
+async def lists_get() -> JSONResponse:
+    return JSONResponse(get_lists())
+
+
+@app.post("/lists/fav/{symbol}")
+async def lists_fav_add(symbol: str) -> JSONResponse:
+    add_item(symbol, "fav")
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/lists/fav/{symbol}")
+async def lists_fav_remove(symbol: str) -> JSONResponse:
+    remove_item(symbol, "fav")
+    return JSONResponse({"ok": True})
+
+
+@app.post("/lists/ignore/{symbol}")
+async def lists_ignore_add(symbol: str) -> JSONResponse:
+    add_item(symbol, "ignored")
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/lists/ignore/{symbol}")
+async def lists_ignore_remove(symbol: str) -> JSONResponse:
+    remove_item(symbol, "ignored")
+    return JSONResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
-Place two lists under the asset list in the left pane.
-Add to each item on the list two icons. One for "add to favourite" and One for "Ignore". 
-When clicking on the favourite ico place the button in the additional Favorite list. 
-When clicking on the ignore buton remove the asset from the main lis and add it to the ignore list.
+Place two lists under the asset list (called main list) in the left pane.
+Add to each item two icons on the main list. One for "add to favourites" and One for "add to ignore list". 
+When clicking on the favourite icon place the asset in the favorite list. keep the asset focussed.
+When clicking on the ignore buton remove the asset from the main list and add it to the ignore list. Focus the next asset on the list or if it was the last asset focus the now last asset.
 
 Use 30% of the vertical space for the main list.
 Use 60 % of the vertical space for the favourite list.

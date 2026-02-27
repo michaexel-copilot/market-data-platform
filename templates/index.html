@@ -16,30 +16,99 @@
   ></script>
   <style>
     html, body { height: 100%; overflow: hidden; }
-    #layout   { display: flex; height: 100vh; }
-    #sidebar  {
-      width: 280px;
-      min-width: 220px;
-      overflow-y: auto;
+    #layout { display: flex; height: 100vh; }
+
+    /* Sidebar: flex column, fixed width, no overflow on the outer container */
+    #sidebar {
+      width: 290px;
+      min-width: 230px;
+      display: flex;
+      flex-direction: column;
       border-right: 1px solid #dee2e6;
       background: #f8f9fa;
+      overflow: hidden;
     }
-    #main-pane {
-      flex: 1;
-      overflow-y: auto;
-      padding: 1.5rem;
+
+    /* Filter header — stays at top */
+    #filter-header {
+      flex: 0 0 auto;
+      padding: 0.5rem;
+      border-bottom: 1px solid #dee2e6;
+      background: #fff;
     }
+
+    /* Three panels fill remaining height at 3:6:1 ratio */
+    #panels-container {
+      flex: 1 1 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel { display: flex; flex-direction: column; overflow: hidden; }
+    #panel-main { flex: 3; }
+    #panel-favs { flex: 6; border-top: 2px solid #dee2e6; }
+    #panel-ignr { flex: 1; border-top: 2px solid #dee2e6; }
+
+    .panel-header {
+      flex: 0 0 auto;
+      padding: 0.25rem 0.6rem;
+      background: #e9ecef;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #495057;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .panel-body { flex: 1 1 0; overflow-y: auto; }
+
+    /* Asset items */
     .asset-item {
       cursor: pointer;
-      padding: 0.45rem 0.75rem;
+      padding: 0.35rem 0.6rem;
       border-bottom: 1px solid #e9ecef;
-      font-size: 0.85rem;
-      transition: background 0.12s;
+      font-size: 0.83rem;
+      transition: background 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.3rem;
     }
     .asset-item:hover, .asset-item.active { background: #dbe9ff; }
     .asset-item:focus { outline: 2px solid #6ea8fe; outline-offset: -2px; }
-    .rank   { color: #6c757d; min-width: 2.4rem; display: inline-block; }
-    .mcap   { color: #6c757d; font-size: 0.75rem; }
+
+    .item-label { flex: 1; min-width: 0; }
+    .rank  { color: #6c757d; min-width: 2.2rem; display: inline-block; font-size: 0.78rem; }
+    .mcap  { color: #6c757d; font-size: 0.73rem; }
+
+    /* Icon buttons */
+    .icon-btn {
+      background: none;
+      border: none;
+      padding: 0 2px;
+      font-size: 0.85rem;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0.45;
+      transition: opacity 0.1s, color 0.1s;
+      flex: 0 0 auto;
+    }
+    .icon-btn:hover { opacity: 1; }
+    .icon-btn.fav-active { color: #f5a623; opacity: 1; }
+
+    /* Fav/ignore list items */
+    .aux-item {
+      padding: 0.3rem 0.6rem;
+      border-bottom: 1px solid #e9ecef;
+      font-size: 0.82rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.3rem;
+    }
+    .aux-item .aux-label { flex: 1; min-width: 0; cursor: pointer; }
+    .aux-item .aux-label:hover { text-decoration: underline; }
+
     #loading-indicator {
       display: none;
       padding: 2rem;
@@ -48,16 +117,20 @@
     }
     htmx-request #loading-indicator { display: block; }
     htmx-request #detail-pane       { display: none; }
+
+    #main-pane { flex: 1; overflow-y: auto; padding: 1.5rem; }
   </style>
 </head>
 <body>
 <div id="layout">
 
-  <!-- Left sidebar: asset list -->
+  <!-- Left sidebar -->
   <div id="sidebar">
-    <div class="p-2 border-bottom bg-white sticky-top">
+
+    <!-- Filter header -->
+    <div id="filter-header">
       <div class="d-flex align-items-center mb-1">
-        <strong>Assets</strong>
+        <strong style="font-size:0.9rem">Assets</strong>
         <span id="filter-badge" class="badge bg-secondary ms-1">{{ assets | length }}</span>
       </div>
       <input
@@ -69,27 +142,66 @@
         spellcheck="false"
       />
     </div>
-    {% for asset in assets %}
-    <div
-      class="asset-item"
-      tabindex="0"
-      hx-get="/asset/{{ asset.symbol }}"
-      hx-target="#detail-pane"
-      hx-swap="innerHTML"
-      data-symbol="{{ asset.symbol }}"
-      hx-indicator="#loading-indicator"
-      onclick="activateItem(this)"
-      onkeydown="if(event.key==='Enter') activateItem(this)"
-    >
-      <span class="rank">#{{ asset.rank }}</span>
-      <strong>{{ asset.symbol }}</strong>
-      {% if asset.market_cap_usd %}
-      <br/><span class="mcap">
-        ${{ "{:,.3f}".format(asset.market_cap_usd / 1e9) }}B
-      </span>
-      {% endif %}
+
+    <div id="panels-container">
+
+      <!-- Main list (30%) -->
+      <div id="panel-main" class="panel">
+        <div class="panel-header">
+          <span>Main</span>
+          <span id="main-badge" class="badge bg-secondary" style="font-size:0.7rem"></span>
+        </div>
+        <div id="main-list" class="panel-body">
+          {% for asset in assets %}
+          <div
+            class="asset-item"
+            tabindex="0"
+            hx-get="/asset/{{ asset.symbol }}"
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+            data-symbol="{{ asset.symbol }}"
+            data-rank="{{ asset.rank }}"
+            data-mcap="{{ asset.market_cap_usd if asset.market_cap_usd else '' }}"
+            hx-indicator="#loading-indicator"
+            onclick="activateItem(this)"
+            onkeydown="if(event.key==='Enter') activateItem(this)"
+          >
+            <span class="item-label">
+              <span class="rank">#{{ asset.rank }}</span>
+              <strong>{{ asset.symbol }}</strong>
+              {% if asset.market_cap_usd %}
+              <br/><span class="mcap">${{ "{:,.3f}".format(asset.market_cap_usd / 1e9) }}B</span>
+              {% endif %}
+            </span>
+            <button class="icon-btn fav-btn" title="Add to favourites"
+              onclick="event.stopPropagation(); toggleFav(this.closest('.asset-item').dataset.symbol)">&#9733;</button>
+            <button class="icon-btn ign-btn" title="Ignore"
+              onclick="event.stopPropagation(); addIgnore(this.closest('.asset-item').dataset.symbol)">&#10005;</button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Favourites list (60%) -->
+      <div id="panel-favs" class="panel">
+        <div class="panel-header">
+          <span style="color:#f5a623">&#9733;</span>
+          <span>Favourites</span>
+          <span id="fav-badge" class="badge bg-warning text-dark" style="font-size:0.7rem"></span>
+        </div>
+        <div id="fav-list" class="panel-body"></div>
+      </div>
+
+      <!-- Ignore list (10%) -->
+      <div id="panel-ignr" class="panel">
+        <div class="panel-header">
+          <span>Ignored</span>
+          <span id="ign-badge" class="badge bg-secondary" style="font-size:0.7rem"></span>
+        </div>
+        <div id="ign-list" class="panel-body"></div>
+      </div>
+
     </div>
-    {% endfor %}
   </div>
 
   <!-- Right pane: detail / chart -->
@@ -108,70 +220,217 @@
 </div>
 </body>
 <script>
-  const totalAssets = {{ assets | length }};
+// ---------------------------------------------------------------------------
+// State — populated from server on init, then kept in sync
+// ---------------------------------------------------------------------------
+const favSet    = new Set();
+const ignoreSet = new Set();
 
-  function visibleItems() {
-    return Array.from(document.querySelectorAll('.asset-item'))
-                .filter(el => el.style.display !== 'none');
-  }
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function mainItemEl(sym) {
+  return document.querySelector(`#main-list .asset-item[data-symbol="${sym}"]`);
+}
 
-  function activateItem(el) {
-    document.querySelectorAll('.asset-item').forEach(e => e.classList.remove('active'));
-    el.classList.add('active');
-    el.focus();
-    el.scrollIntoView({ block: 'nearest' });
-    htmx.trigger(el, 'click');
-  }
+function visibleMainItems() {
+  return Array.from(document.querySelectorAll('#main-list .asset-item'))
+              .filter(el => el.style.display !== 'none');
+}
 
-  // Live filter
-  document.getElementById('filter-input').addEventListener('input', function() {
-    const q = this.value.trim().toLowerCase();
-    let shown = 0;
-    document.querySelectorAll('.asset-item').forEach(el => {
-      const match = !q || el.dataset.symbol.toLowerCase().includes(q);
-      el.style.display = match ? '' : 'none';
-      if (match) shown++;
-    });
-    document.getElementById('filter-badge').textContent =
-      q ? (shown + ' / ' + totalAssets) : totalAssets;
+// ---------------------------------------------------------------------------
+// Apply current Sets to the DOM
+// ---------------------------------------------------------------------------
+function applyStoredState() {
+  document.querySelectorAll('#main-list .asset-item').forEach(el => {
+    const sym = el.dataset.symbol;
+    el.style.display = ignoreSet.has(sym) ? 'none' : '';
+    el.querySelector('.fav-btn').classList.toggle('fav-active', favSet.has(sym));
   });
+  updateMainBadge();
+  renderFavPanel();
+  renderIgnorePanel();
+}
 
-  document.addEventListener('keydown', function(e) {
-    const filterInput = document.getElementById('filter-input');
+// ---------------------------------------------------------------------------
+// Badge counters
+// ---------------------------------------------------------------------------
+function updateMainBadge() {
+  const shown = visibleMainItems().length;
+  const total = document.querySelectorAll('#main-list .asset-item').length;
+  const q = document.getElementById('filter-input').value.trim();
+  document.getElementById('main-badge').textContent = q ? (shown + ' / ' + total) : total;
+}
 
-    if (e.key === 'Escape') {
-      filterInput.value = '';
-      filterInput.dispatchEvent(new Event('input'));
-      filterInput.focus();
+// ---------------------------------------------------------------------------
+// Render auxiliary panels
+// ---------------------------------------------------------------------------
+function renderFavPanel() {
+  const container = document.getElementById('fav-list');
+  container.innerHTML = '';
+  favSet.forEach(sym => {
+    const div = document.createElement('div');
+    div.className = 'aux-item';
+    div.innerHTML =
+      `<span class="aux-label" onclick="activateBySymbol('${sym}')"><strong>${sym}</strong></span>` +
+      `<button class="icon-btn fav-active" title="Remove from favourites" onclick="toggleFav('${sym}')">&#9733;</button>`;
+    container.appendChild(div);
+  });
+  document.getElementById('fav-badge').textContent = favSet.size || '';
+}
+
+function renderIgnorePanel() {
+  const container = document.getElementById('ign-list');
+  container.innerHTML = '';
+  ignoreSet.forEach(sym => {
+    const div = document.createElement('div');
+    div.className = 'aux-item';
+    div.innerHTML =
+      `<span class="aux-label text-muted" onclick="restoreIgnored('${sym}')">${sym}</span>` +
+      `<button class="icon-btn" title="Restore to main list" onclick="restoreIgnored('${sym}')">&#8617;</button>`;
+    container.appendChild(div);
+  });
+  document.getElementById('ign-badge').textContent = ignoreSet.size || '';
+}
+
+// ---------------------------------------------------------------------------
+// Server API helpers
+// ---------------------------------------------------------------------------
+function apiPost(url)   { return fetch(url, {method: 'POST'}); }
+function apiDelete(url) { return fetch(url, {method: 'DELETE'}); }
+
+// ---------------------------------------------------------------------------
+// Favourites
+// ---------------------------------------------------------------------------
+function toggleFav(sym) {
+  if (favSet.has(sym)) {
+    favSet.delete(sym);
+    apiDelete(`/lists/fav/${sym}`);
+  } else {
+    favSet.add(sym);
+    apiPost(`/lists/fav/${sym}`);
+  }
+  const mainEl = mainItemEl(sym);
+  if (mainEl) mainEl.querySelector('.fav-btn').classList.toggle('fav-active', favSet.has(sym));
+  renderFavPanel();
+}
+
+// ---------------------------------------------------------------------------
+// Ignore
+// ---------------------------------------------------------------------------
+function addIgnore(sym) {
+  const mainEl = mainItemEl(sym);
+  if (!mainEl) return;
+
+  const visible = visibleMainItems();
+  const idx = visible.indexOf(mainEl);
+  const nextEl = visible[idx + 1] ?? visible[idx - 1] ?? null;
+
+  ignoreSet.add(sym);
+  apiPost(`/lists/ignore/${sym}`);
+  mainEl.style.display = 'none';
+  updateMainBadge();
+  renderIgnorePanel();
+
+  if (nextEl) activateItem(nextEl);
+}
+
+function restoreIgnored(sym) {
+  ignoreSet.delete(sym);
+  apiDelete(`/lists/ignore/${sym}`);
+  const mainEl = mainItemEl(sym);
+  if (mainEl) {
+    mainEl.style.display = '';
+    const q = document.getElementById('filter-input').value.trim().toLowerCase();
+    if (q && !sym.toLowerCase().includes(q)) mainEl.style.display = 'none';
+  }
+  updateMainBadge();
+  renderIgnorePanel();
+  if (mainEl && mainEl.style.display !== 'none') activateItem(mainEl);
+}
+
+// ---------------------------------------------------------------------------
+// Activate (load chart)
+// ---------------------------------------------------------------------------
+function activateItem(el) {
+  document.querySelectorAll('.asset-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  el.focus();
+  el.scrollIntoView({ block: 'nearest' });
+  htmx.trigger(el, 'click');
+}
+
+function activateBySymbol(sym) {
+  const el = mainItemEl(sym);
+  if (el && el.style.display !== 'none') activateItem(el);
+}
+
+// ---------------------------------------------------------------------------
+// Live filter (main list only)
+// ---------------------------------------------------------------------------
+document.getElementById('filter-input').addEventListener('input', function() {
+  const q = this.value.trim().toLowerCase();
+  document.querySelectorAll('#main-list .asset-item').forEach(el => {
+    if (ignoreSet.has(el.dataset.symbol)) { el.style.display = 'none'; return; }
+    el.style.display = (!q || el.dataset.symbol.toLowerCase().includes(q)) ? '' : 'none';
+  });
+  updateMainBadge();
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard navigation + hotkeys
+// ---------------------------------------------------------------------------
+document.addEventListener('keydown', function(e) {
+  const filterInput = document.getElementById('filter-input');
+
+  if (e.key === 'Escape') {
+    filterInput.value = '';
+    filterInput.dispatchEvent(new Event('input'));
+    filterInput.focus();
+    return;
+  }
+
+  // Hotkeys on a focused main-list item (no modifier keys)
+  if (!e.ctrlKey && !e.altKey && !e.metaKey &&
+      document.activeElement.matches('#main-list .asset-item')) {
+    const sym = document.activeElement.dataset.symbol;
+    if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFav(sym);  return; }
+    if (e.key === 'i' || e.key === 'I') { e.preventDefault(); addIgnore(sym);  return; }
+  }
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const items = visibleMainItems();
+    if (!items.length) return;
+
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar.contains(document.activeElement) &&
+        !document.querySelector('#main-list .asset-item.active')) return;
+
+    if (e.key === 'ArrowDown' && document.activeElement === filterInput) {
+      e.preventDefault();
+      activateItem(items[0]);
       return;
     }
 
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const items = visibleItems();
-      if (!items.length) return;
+    e.preventDefault();
+    const activeEl = document.querySelector('#main-list .asset-item.active');
+    const idx = activeEl ? items.indexOf(activeEl) : -1;
+    const next = e.key === 'ArrowDown'
+      ? (items[idx + 1] ?? items[0])
+      : (items[idx - 1] ?? items[items.length - 1]);
+    activateItem(next);
+  }
+});
 
-      const sidebar = document.getElementById('sidebar');
-      if (!sidebar.contains(document.activeElement) &&
-          !document.querySelector('.asset-item.active')) return;
-
-      // Arrow-down from filter input → jump to first visible item
-      if (e.key === 'ArrowDown' && document.activeElement === filterInput) {
-        e.preventDefault();
-        activateItem(items[0]);
-        return;
-      }
-
-      e.preventDefault();
-      const activeEl = document.querySelector('.asset-item.active');
-      const idx = activeEl ? items.indexOf(activeEl) : -1;
-      let next;
-      if (e.key === 'ArrowDown') {
-        next = items[idx + 1] ?? items[0];
-      } else {
-        next = items[idx - 1] ?? items[items.length - 1];
-      }
-      activateItem(next);
-    }
+// ---------------------------------------------------------------------------
+// Init — load state from server, then render
+// ---------------------------------------------------------------------------
+fetch('/lists')
+  .then(r => r.json())
+  .then(data => {
+    (data.favs    ?? []).forEach(s => favSet.add(s));
+    (data.ignored ?? []).forEach(s => ignoreSet.add(s));
+    applyStoredState();
   });
 </script>
 </html>
