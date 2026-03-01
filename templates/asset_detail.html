@@ -72,6 +72,11 @@
               {% if cg.ath %}
                 ${{ "{:,.4g}".format(cg.ath) }}
                 <span class="text-muted" style="font-size:0.72rem"> {{ cg.ath_date }}</span>
+                {% if last_close %}
+                <br/><span class="text-muted" style="font-size:0.72rem">
+                  {{ "{:+.1f}%".format((last_close - cg.ath) / cg.ath * 100) }} vs now
+                </span>
+                {% endif %}
               {% else %}&mdash;{% endif %}
             </td>
           </tr>
@@ -81,6 +86,11 @@
               {% if cg.atl %}
                 ${{ "{:,.4g}".format(cg.atl) }}
                 <span class="text-muted" style="font-size:0.72rem"> {{ cg.atl_date }}</span>
+                {% if last_close %}
+                <br/><span class="text-muted" style="font-size:0.72rem">
+                  {{ "{:+.1f}%".format((last_close - cg.atl) / cg.atl * 100) }} vs now
+                </span>
+                {% endif %}
               {% else %}&mdash;{% endif %}
             </td>
           </tr>

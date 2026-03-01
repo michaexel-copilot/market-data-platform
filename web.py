@@ -236,6 +236,7 @@ async def asset_detail(
             "market_cap_usd": asset["market_cap_usd"] if asset else None,
             "info":           info,
             "cg":             cg,
+            "last_close":     last_close,
             "chart_filename": chart_filename,
             "data_source":    get_data_source(sym_upper),
             "sma_period":     sma,
