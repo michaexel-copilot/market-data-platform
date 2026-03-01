@@ -191,6 +191,9 @@
               {% if asset.market_cap_usd %}
               <br/><span class="mcap">${{ "{:,.3f}".format(asset.market_cap_usd / 1e9) }}B</span>
               {% endif %}
+              {% if asset.date_launched %}
+              <br/><span class="mcap">{{ asset.date_launched }}</span>
+              {% endif %}
             </span>
             <button class="icon-btn fav-btn" title="Add to favourites"
               onclick="event.stopPropagation(); toggleFav(this.closest('.asset-item').dataset.symbol)">&#9733;</button>

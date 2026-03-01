@@ -19,11 +19,13 @@ from fastapi.templating import Jinja2Templates
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from cmc_info import fetch_cmc_info          # noqa: E402
+from cmc_info import fetch_cmc_info, fetch_cmc_info_batch, fetch_market_caps  # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 
-CSV_PATH  = ROOT / "hl_testnet_pairs_with_mcap.csv"
+HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
+assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
+
 PNG_DIR   = ROOT / "png"
 TEMPLATES = Jinja2Templates(directory=str(ROOT / "templates"))
 
@@ -35,17 +37,40 @@ app.mount("/png", StaticFiles(directory=str(PNG_DIR)), name="png")
 # ---------------------------------------------------------------------------
 
 def _load_assets() -> list[dict[str, Any]]:
-    with open(CSV_PATH, newline="") as f:
-        rows = list(csv.DictReader(f))
-    assets = []
-    for rank, row in enumerate(rows, start=1):
-        mc = row.get("market_cap_usd", "")
+    import json as _json
+
+    cache_path = ROOT / "cache" / f"assets_{date.today()}.json"
+    if cache_path.exists():
+        print("[web] Loading asset list from cache…")
+        return _json.loads(cache_path.read_text())
+
+    with open(HL_PAIRS_CSV, newline="") as f:
+        symbols = [row["base"] for row in csv.DictReader(f)]
+
+    print(f"[web] Fetching market caps + CMC info for {len(symbols)} symbols…")
+    mcaps = fetch_market_caps(symbols)       # {hl_sym: float | None}
+    infos = fetch_cmc_info_batch(symbols)    # {hl_sym: info_dict}
+
+    assets: list[dict[str, Any]] = []
+    for sym in symbols:
+        mcap = mcaps.get(sym)
+        info = infos.get(sym) or {}
+        dl   = info.get("date_launched")
         assets.append({
-            "rank":          rank,
-            "symbol":        row["base"],
-            "cmc_symbol":    row.get("cmc_symbol", row["base"]),
-            "market_cap_usd": float(mc) if mc else None,
+            "rank":           0,
+            "symbol":         sym,
+            "cmc_symbol":     sym,
+            "market_cap_usd": mcap,
+            "date_launched":  dl[:10] if dl else None,
         })
+
+    assets.sort(key=lambda a: (a["market_cap_usd"] or 0.0), reverse=True)
+    for i, a in enumerate(assets, 1):
+        a["rank"] = i
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(_json.dumps(assets))
+    print(f"[web] Loaded {len(assets)} assets.")
     return assets
 
 
