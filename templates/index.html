@@ -151,6 +151,7 @@
       <div class="d-flex align-items-center mb-1">
         <strong style="font-size:0.9rem">Assets</strong>
         <span id="filter-badge" class="badge bg-secondary ms-1">{{ assets | length }}</span>
+        <span id="init-spinner" class="spinner-border spinner-border-sm text-secondary ms-1" role="status" aria-label="Loading…"></span>
       </div>
       <input
         id="filter-input"
@@ -538,6 +539,10 @@ fetch('/lists')
     (data.favs    ?? []).forEach(s => favSet.add(s));
     (data.ignored ?? []).forEach(s => ignoreSet.add(s));
     applyStoredState();
+  })
+  .catch(() => {})
+  .finally(() => {
+    document.getElementById('init-spinner').style.display = 'none';
   });
 </script>
 </html>
