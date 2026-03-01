@@ -540,7 +540,7 @@ fetch('/lists')
     (data.ignored ?? []).forEach(s => ignoreSet.add(s));
     applyStoredState();
   })
-  .catch(() => {})
+  .catch(err => console.warn('[lists] fetch failed:', err))
   .finally(() => {
     document.getElementById('init-spinner').style.display = 'none';
   });
