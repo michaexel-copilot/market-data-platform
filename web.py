@@ -20,6 +20,7 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 from cmc_info import fetch_cmc_info, fetch_cmc_info_batch, fetch_market_caps  # noqa: E402
+from cg_market import fetch_cg_market  # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 
@@ -185,6 +186,7 @@ async def asset_detail(
     cmc_symbol = asset["cmc_symbol"] if asset else sym_upper
 
     info = fetch_cmc_info(cmc_symbol)
+    cg   = fetch_cg_market(sym_upper)
 
     # Compute candles + SMAs for backtest
     try:
@@ -233,6 +235,7 @@ async def asset_detail(
             "symbol":         sym_upper,
             "market_cap_usd": asset["market_cap_usd"] if asset else None,
             "info":           info,
+            "cg":             cg,
             "chart_filename": chart_filename,
             "data_source":    get_data_source(sym_upper),
             "sma_period":     sma,

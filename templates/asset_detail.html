@@ -57,16 +57,34 @@
   </div>
 
   <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:160px">
+    <div class="card shadow-sm" style="min-width:180px">
       <div class="card-body py-2 px-3">
-        <div class="text-muted small">Launch Date</div>
-        <div class="fw-semibold fs-6">
-          {% if info.date_launched %}
-            {{ info.date_launched[:10] }}
-          {% else %}
-            —
-          {% endif %}
-        </div>
+        <table style="font-size:0.82rem; line-height:1.6; border-collapse:collapse">
+          <tr>
+            <td class="text-muted pe-2">Launched</td>
+            <td class="fw-semibold">
+              {% if info.date_launched %}{{ info.date_launched[:10] }}{% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted pe-2">ATH</td>
+            <td class="fw-semibold">
+              {% if cg.ath %}
+                ${{ "{:,.4g}".format(cg.ath) }}
+                <span class="text-muted" style="font-size:0.72rem"> {{ cg.ath_date }}</span>
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted pe-2">ATL</td>
+            <td class="fw-semibold">
+              {% if cg.atl %}
+                ${{ "{:,.4g}".format(cg.atl) }}
+                <span class="text-muted" style="font-size:0.72rem"> {{ cg.atl_date }}</span>
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+        </table>
       </div>
     </div>
   </div>
