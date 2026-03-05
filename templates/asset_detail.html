@@ -294,6 +294,14 @@
     VWAP: volume-weighted average price &mdash;
     Volume: total traded USD over the period
   </p>
+  {% if perf_chart_filename %}
+  <img
+    src="/png/{{ perf_chart_filename }}"
+    alt="{{ symbol }} 4H performance chart"
+    class="img-fluid rounded shadow-sm mt-3"
+    style="width:100%; max-width:100%"
+  />
+  {% endif %}
   {% else %}
   <p class="text-muted small">Performance data unavailable for {{ symbol }}.</p>
   {% endif %}

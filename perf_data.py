@@ -2,8 +2,10 @@
 perf_data: compute price-performance statistics from OHLCV candles.
 
 Provides:
-  fetch_5y_candles(hl_symbol)       -> list of daily candle dicts
-  compute_perf_rows(candles_5y)     -> list of period stat dicts
+  fetch_5y_candles(hl_symbol)                       -> list of daily candle dicts
+  compute_perf_rows(candles_5y)                     -> list of period stat dicts
+  fetch_4h_candles(hl_symbol, days=90)              -> list of 4H candle dicts
+  draw_perf_chart(hl_symbol, perf_rows, candles_4h) -> Path to PNG
 
 Candle dict keys:  date, open, high, low, close, volume (float|None, USD)
 
@@ -14,12 +16,17 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import requests
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from draw_chart import K_SCALE_SET, resolve_source_key  # noqa: E402
+from draw_chart import K_SCALE_SET, PNG_DIR, resolve_source_key  # noqa: E402
 
 CACHE_DIR = ROOT / "cache" / "ohlcv"
 
@@ -226,3 +233,252 @@ def compute_perf_rows(candles_5y: list[dict]) -> list[dict]:
         })
 
     return rows
+
+
+# ---------------------------------------------------------------------------
+# 4-hourly candle fetch
+# ---------------------------------------------------------------------------
+
+def _4h_cache_path(source_key: str) -> Path:
+    safe = source_key.replace("/", "_").replace(":", "_")
+    return CACHE_DIR / f"{safe}_4h_{date.today()}.json"
+
+
+def _load_4h_cache(source_key: str) -> list[dict] | None:
+    path = _4h_cache_path(source_key)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+        for c in raw:
+            c["date"] = datetime.fromisoformat(c["date"])
+        return raw
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _save_4h_cache(source_key: str, candles: list[dict]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _4h_cache_path(source_key)
+    serialisable = [{**c, "date": c["date"].isoformat()} for c in candles]
+    path.write_text(json.dumps(serialisable))
+
+
+def _resample_1h_to_4h(hourly: list[dict]) -> list[dict]:
+    """
+    Aggregate hourly candles into 4H blocks.
+    Each block starts at hours 0, 4, 8, 12, 16, 20 UTC.
+    """
+    from collections import defaultdict
+
+    buckets: dict[tuple, list[dict]] = defaultdict(list)
+    for c in hourly:
+        dt = c["date"]
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        # Floor to the nearest 4-hour boundary
+        h4 = (dt.hour // 4) * 4
+        key = (dt.year, dt.month, dt.day, h4)
+        buckets[key].append(c)
+
+    result = []
+    for (yr, mo, day, h4), group in sorted(buckets.items()):
+        group.sort(key=lambda c: c["date"])
+        vol_vals = [c.get("volume") for c in group if c.get("volume")]
+        result.append({
+            "date":   datetime(yr, mo, day, h4, tzinfo=timezone.utc),
+            "open":   group[0]["open"],
+            "high":   max(c["high"]  for c in group),
+            "low":    min(c["low"]   for c in group),
+            "close":  group[-1]["close"],
+            "volume": sum(vol_vals) if vol_vals else None,
+        })
+    return result
+
+
+def _fetch_4h_yf(source_key: str, multiplier: float) -> list[dict]:
+    """Fetch 90 days of hourly data from Yahoo Finance, resampled to 4H."""
+    import yfinance as yf
+
+    hist = yf.Ticker(source_key).history(period="3mo", interval="1h", auto_adjust=True)
+    if hist.empty:
+        raise ValueError(f"No 1H data from Yahoo Finance for '{source_key}'")
+
+    hourly = []
+    for ts, row in hist.iterrows():
+        dt = ts.to_pydatetime()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        vol_usd = float(row.get("Volume") or 0)
+        hourly.append({
+            "date":   dt,
+            "open":   float(row["Open"])  * multiplier,
+            "high":   float(row["High"])  * multiplier,
+            "low":    float(row["Low"])   * multiplier,
+            "close":  float(row["Close"]) * multiplier,
+            "volume": vol_usd if vol_usd > 0 else None,
+        })
+    hourly.sort(key=lambda c: c["date"])
+    return _resample_1h_to_4h(hourly)
+
+
+def _fetch_4h_cg(cg_id: str, multiplier: float) -> list[dict]:
+    """
+    Fetch 90 days of hourly data from CoinGecko, resampled to 4H.
+    CoinGecko free-tier returns hourly data for days <= 90.
+    H/L/O are all set to close (no intraday range available).
+    """
+    resp = requests.get(
+        CG_MARKET_CHART_URL.format(id=cg_id),
+        params={"vs_currency": "usd", "days": "90"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    prices  = data.get("prices", [])
+    volumes = {v[0]: v[1] for v in data.get("total_volumes", [])}
+
+    hourly = []
+    for ts_ms, price in prices:
+        scaled = price * multiplier
+        vol = volumes.get(ts_ms)
+        hourly.append({
+            "date":   datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc),
+            "open":   scaled,
+            "high":   scaled,
+            "low":    scaled,
+            "close":  scaled,
+            "volume": vol if vol and vol > 0 else None,
+        })
+    hourly.sort(key=lambda c: c["date"])
+    return _resample_1h_to_4h(hourly)
+
+
+def fetch_4h_candles(hl_symbol: str) -> list[dict]:
+    """
+    Fetch ~90 days of 4-hourly candles for a Hyperliquid symbol.
+    YF symbols get true OHLCV (1H resampled); CG symbols get close-only line data.
+    Cached to disk for the current day.
+    """
+    source_key, multiplier = resolve_source_key(hl_symbol)
+
+    cached = _load_4h_cache(source_key)
+    if cached is not None:
+        return cached
+
+    if source_key.startswith("cg:"):
+        cg_id = source_key[3:]
+        print(f"[perf_data] fetching 4H from CoinGecko: {cg_id}")
+        candles = _fetch_4h_cg(cg_id, multiplier)
+    else:
+        print(f"[perf_data] fetching 4H from Yahoo Finance: {source_key}")
+        candles = _fetch_4h_yf(source_key, multiplier)
+
+    _save_4h_cache(source_key, candles)
+    return candles
+
+
+# ---------------------------------------------------------------------------
+# Performance chart drawing
+# ---------------------------------------------------------------------------
+
+# Reference-line config: (period_label, high_color, low_color)
+_REF_LINES = [
+    ("1D",  "#4a9eff", "#4a9eff"),   # blue
+    ("7D",  "#ff9f40", "#ff9f40"),   # orange
+    ("30D", "#4caf50", "#4caf50"),   # green
+]
+
+
+def draw_perf_chart(
+    hl_symbol: str,
+    perf_rows: list[dict],
+    candles_4h: list[dict],
+) -> Path | None:
+    """
+    Draw a 90-day 4H price chart with H/L reference lines for 1D, 7D, 30D.
+    Saves to PNG_DIR and returns the Path. Returns None if no candles.
+    Skips regeneration if today's file already exists.
+    """
+    if not candles_4h:
+        return None
+
+    today_str = date.today().isoformat()
+    filename  = f"{hl_symbol.upper()}USD_{today_str}_PERF90.png"
+    out_path  = PNG_DIR / filename
+    if out_path.exists():
+        return out_path
+
+    # Detect if this is a CG source (close-only) by checking equality of H/L/C
+    c0 = candles_4h[0]
+    is_line_only = (c0["high"] == c0["low"] == c0["close"])
+
+    dates  = [c["date"] for c in candles_4h]
+    closes = [c["close"] for c in candles_4h]
+    highs  = [c["high"]  for c in candles_4h]
+    lows   = [c["low"]   for c in candles_4h]
+
+    # Look up perf_rows by label for quick access
+    rows_by_label = {r["label"]: r for r in perf_rows}
+
+    fig, ax = plt.subplots(figsize=(30, 10), dpi=100)
+
+    if is_line_only:
+        # CoinGecko source — plain close-price line
+        ax.plot(dates, closes, color="#888888", linewidth=0.8, label="Price (close)")
+    else:
+        # Yahoo Finance source — OHLC bars (thin, coloured by direction)
+        width_4h = timedelta(hours=3.6)  # slightly narrower than 4H for gap
+        for c in candles_4h:
+            color = "#26a69a" if c["close"] >= c["open"] else "#ef5350"
+            # High-low wick
+            ax.plot([c["date"], c["date"]], [c["low"], c["high"]],
+                    color=color, linewidth=0.6, alpha=0.8)
+            # Body (open-close rectangle as thin vline with linewidth proportional to width)
+            body_lo = min(c["open"], c["close"])
+            body_hi = max(c["open"], c["close"])
+            ax.plot([c["date"], c["date"]], [body_lo, body_hi],
+                    color=color, linewidth=2.5, alpha=0.9)
+
+    # Reference lines: 1D, 7D, 30D high and low
+    for label, hcolor, lcolor in _REF_LINES:
+        row = rows_by_label.get(label)
+        if not row:
+            continue
+        if row["high"] is not None:
+            ax.axhline(
+                y=row["high"], color=hcolor, linewidth=1.2,
+                linestyle="--", alpha=0.85,
+                label=f"{label} H  ${row['high']:,.4g}",
+            )
+        if row["low"] is not None:
+            ax.axhline(
+                y=row["low"], color=lcolor, linewidth=1.2,
+                linestyle=":", alpha=0.85,
+                label=f"{label} L  ${row['low']:,.4g}",
+            )
+
+    # Weekly vertical separators
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_locator(mdates.DayLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right", fontsize=9)
+    ax.grid(which="major", axis="x", linestyle="--", linewidth=0.5, alpha=0.4)
+    ax.grid(which="major", axis="y", linestyle="--", linewidth=0.4, alpha=0.4)
+
+    # Y-axis: pad by 2%
+    y_min = min(lows)  * 0.98
+    y_max = max(highs) * 1.02
+    ax.set_ylim(y_min, y_max)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.6g"))
+
+    ax.set_title(f"{hl_symbol} — 4H price, last 90 days", fontsize=14)
+    ax.set_ylabel("Price (USD)", fontsize=11)
+    ax.legend(loc="upper left", fontsize=10, ncol=2)
+
+    PNG_DIR.mkdir(exist_ok=True)
+    fig.savefig(out_path, dpi=100, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[perf_data] saved: {out_path}")
+    return out_path

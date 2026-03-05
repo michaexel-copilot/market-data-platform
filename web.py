@@ -23,7 +23,7 @@ from cmc_info import fetch_cmc_info, fetch_cmc_info_batch, fetch_market_caps  # 
 from cg_market import fetch_cg_market  # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
-from perf_data import compute_perf_rows, fetch_5y_candles  # noqa: E402
+from perf_data import compute_perf_rows, draw_perf_chart, fetch_4h_candles, fetch_5y_candles  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
@@ -229,12 +229,19 @@ async def asset_detail(
 
     # Performance data — only fetched when the Performance tab is active
     perf_rows: list[dict] = []
+    perf_chart_filename: str | None = None
     if tab == "performance":
         try:
             candles_5y = fetch_5y_candles(sym_upper)
             perf_rows  = compute_perf_rows(candles_5y)
         except Exception as exc:  # noqa: BLE001
             print(f"[web] perf data failed for {sym_upper}: {exc}")
+        try:
+            candles_4h = fetch_4h_candles(sym_upper)
+            path_4h    = draw_perf_chart(sym_upper, perf_rows, candles_4h)
+            perf_chart_filename = path_4h.name if path_4h else None
+        except Exception as exc:  # noqa: BLE001
+            print(f"[web] perf chart failed for {sym_upper}: {exc}")
 
     # Format trades for template (convert datetimes to strings)
     last_close = candles[-1]["close"] if candles else None
@@ -270,8 +277,9 @@ async def asset_detail(
             "pos_usd":        pos,
             "trades":         trades,
             "highlight":      highlight,
-            "tab":            tab,
-            "perf_rows":      perf_rows,
+            "tab":               tab,
+            "perf_rows":         perf_rows,
+            "perf_chart_filename": perf_chart_filename,
         },
     )
 
