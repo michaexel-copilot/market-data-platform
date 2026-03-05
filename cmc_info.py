@@ -11,6 +11,7 @@ Returned dict keys:
 """
 import json
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
@@ -141,6 +142,8 @@ def fetch_market_caps(hl_symbols: list[str]) -> dict[str, float | None]:
     cmc_syms = list(cmc_to_hl.keys())
 
     for i in range(0, len(cmc_syms), 100):
+        if i > 0:
+            time.sleep(2)   # avoid CMC rate-limit (30 req/min free tier)
         batch = cmc_syms[i : i + 100]
         try:
             resp = requests.get(
@@ -149,7 +152,9 @@ def fetch_market_caps(hl_symbols: list[str]) -> dict[str, float | None]:
                 params={"symbol": ",".join(batch)},
                 timeout=30,
             )
-            resp.raise_for_status()
+            if not resp.ok:
+                print(f"[cmc_info] market-cap batch {i//100} HTTP {resp.status_code}: {resp.text[:200]}")
+                continue
             data = resp.json().get("data", {})
             for cs, entries in data.items():
                 if not entries:
@@ -163,7 +168,7 @@ def fetch_market_caps(hl_symbols: list[str]) -> dict[str, float | None]:
                 for hl in cmc_to_hl.get(cs.upper(), cmc_to_hl.get(cs, [])):
                     result[hl] = mc
         except Exception as exc:  # noqa: BLE001
-            print(f"[cmc_info] Warning: market-cap batch fetch failed: {exc}")
+            print(f"[cmc_info] Warning: market-cap batch {i//100} failed: {exc}")
 
     return result
 
@@ -209,6 +214,8 @@ def fetch_cmc_info_batch(hl_symbols: list[str]) -> dict[str, dict]:
     cmc_syms = list(cmc_to_hl.keys())
 
     for i in range(0, len(cmc_syms), 100):
+        if i > 0:
+            time.sleep(2)   # avoid CMC rate-limit
         batch = cmc_syms[i : i + 100]
         try:
             resp = requests.get(
@@ -217,7 +224,12 @@ def fetch_cmc_info_batch(hl_symbols: list[str]) -> dict[str, dict]:
                 params={"symbol": ",".join(batch)},
                 timeout=30,
             )
-            resp.raise_for_status()
+            if not resp.ok:
+                print(f"[cmc_info] info batch {i//100} HTTP {resp.status_code}: {resp.text[:200]}")
+                for cs in batch:
+                    for hl in cmc_to_hl.get(cs, []):
+                        result.setdefault(hl, _empty(cs))
+                continue
             data = resp.json().get("data", {})
             for cs in batch:
                 entries = data.get(cs, [])
