@@ -1,0 +1,1 @@
+add the launch-date on the main page to left of the ohlc source.
