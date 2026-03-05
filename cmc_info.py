@@ -78,10 +78,10 @@ def fetch_cmc_info(cmc_symbol: str) -> dict:
             return empty
 
         # When multiple coins share the same symbol, pick the one with the
-        # lowest CMC id — that is always the original / most prominent listing.
-        entry = entries[0] if len(entries) == 1 else min(
+        # most market pairs — that is always the most actively traded / prominent listing.
+        entry = entries[0] if len(entries) == 1 else max(
             entries,
-            key=lambda e: (e.get("id") or 999_999_999),
+            key=lambda e: (e.get("num_market_pairs") or 0),
         )
 
         # Prefer date_launched (actual blockchain/token launch date) over
@@ -111,11 +111,19 @@ def fetch_cmc_info(cmc_symbol: str) -> dict:
 # ---------------------------------------------------------------------------
 _K_SCALE: set[str] = {"KBONK", "KDOGS", "KFLOKI", "KLUNC", "KNEIRO", "KPEPE", "KSHIB"}
 
+# Symbols that HL lists under a legacy/different ticker than CMC uses.
+_HL_TO_CMC: dict[str, str] = {
+    "RNDR":     "RENDER",    # Render Network rebranded from RNDR → RENDER
+    "NEIROETH": "NEIRO",     # Neiro on Ethereum; CMC lists as NEIRO
+}
+
 
 def _to_cmc_sym(hl_sym: str) -> str:
     """Map a Hyperliquid symbol to its CoinMarketCap equivalent."""
     s = hl_sym.upper()
-    return s[1:] if s in _K_SCALE else s
+    if s in _K_SCALE:
+        s = s[1:]
+    return _HL_TO_CMC.get(s, s)
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +167,10 @@ def fetch_market_caps(hl_symbols: list[str]) -> dict[str, float | None]:
             for cs, entries in data.items():
                 if not entries:
                     continue
-                entry = (
-                    min(entries, key=lambda e: e.get("id") or 999_999_999)
-                    if len(entries) > 1
-                    else entries[0]
+                # Pick the entry with the highest non-null market cap (most prominent coin)
+                entry = max(
+                    entries,
+                    key=lambda e: (e.get("quote") or {}).get("USD", {}).get("market_cap") or 0,
                 )
                 mc = (entry.get("quote") or {}).get("USD", {}).get("market_cap")
                 for hl in cmc_to_hl.get(cs.upper(), cmc_to_hl.get(cs, [])):
@@ -236,8 +244,9 @@ def fetch_cmc_info_batch(hl_symbols: list[str]) -> dict[str, dict]:
                 if not entries:
                     info = _empty(cs)
                 else:
+                    # Pick the most actively traded entry (highest num_market_pairs)
                     entry = (
-                        min(entries, key=lambda e: e.get("id") or 999_999_999)
+                        max(entries, key=lambda e: e.get("num_market_pairs") or 0)
                         if len(entries) > 1
                         else entries[0]
                     )
