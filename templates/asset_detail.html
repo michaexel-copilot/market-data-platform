@@ -1,134 +1,11 @@
 <!-- asset_detail.html — HTMX partial returned by GET /asset/{symbol} -->
-<div class="mb-3 d-flex align-items-center gap-3">
+<div class="mb-3">
   <h2 class="mb-0">
     {% if info.slug %}<a href="https://coinmarketcap.com/currencies/{{ info.slug }}/" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-reset">{{ info.name }}</a>{% else %}{{ info.name }}{% endif %}
     <small class="text-muted fs-5">({{ symbol }})</small>
   </h2>
-  <div class="d-flex align-items-center gap-2 ms-auto">
-    <label class="form-label mb-0 text-muted" style="font-size:1.3rem">SMA period</label>
-    <input
-      id="sma-input"
-      type="number"
-      class="form-control"
-      style="width:120px; font-size:1.3rem"
-      min="1" max="500"
-      value="{{ sma_period }}"
-      hx-get="/asset/{{ symbol }}"
-      hx-target="#detail-pane"
-      hx-swap="innerHTML"
-      hx-include="#pos-input, #tab-input"
-      name="sma"
-      hx-trigger="change"
-    />
-  </div>
 </div>
 <input type="hidden" id="tab-input" name="tab" value="{{ tab }}">
-<script>
-(function () {
-  const inp = document.getElementById('sma-input');
-  if (!inp) return;
-  inp.addEventListener('keydown', function (e) {
-    let dir = 0;
-    if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-    if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-    if (dir === 0) return;
-
-    e.preventDefault();
-
-    const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
-    const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
-    inp.value = next;
-    inp.dispatchEvent(new Event('change'));
-  });
-})();
-</script>
-
-<div class="row g-3 mb-4">
-
-  <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:160px">
-      <div class="card-body py-2 px-3">
-        <div class="text-muted small">Market Cap</div>
-        <div class="fw-semibold fs-6">
-          {% if market_cap_usd %}
-            ${{ "{:,.2f}".format(market_cap_usd / 1e9) }}B
-          {% else %}
-            —
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:180px">
-      <div class="card-body py-2 px-3">
-        <table style="font-size:0.82rem; line-height:1.6; border-collapse:collapse">
-          <tr>
-            <td class="text-muted pe-2">Launched</td>
-            <td class="fw-semibold">
-              {% if info.date_launched %}{{ info.date_launched[:10] }}{% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-          <tr>
-            <td class="text-muted pe-2">ATH</td>
-            <td class="fw-semibold">
-              {% if cg.ath %}
-                ${{ "{:,.4g}".format(cg.ath) }}
-                <span class="text-muted" style="font-size:0.72rem"> {{ cg.ath_date }}</span>
-                {% if last_close %}
-                <br/><span class="text-muted" style="font-size:0.72rem">
-                  {{ "{:+.1f}%".format((last_close - cg.ath) / cg.ath * 100) }} vs now
-                </span>
-                {% endif %}
-              {% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-          <tr>
-            <td class="text-muted pe-2">ATL</td>
-            <td class="fw-semibold">
-              {% if cg.atl %}
-                ${{ "{:,.4g}".format(cg.atl) }}
-                <span class="text-muted" style="font-size:0.72rem"> {{ cg.atl_date }}</span>
-                {% if last_close %}
-                <br/><span class="text-muted" style="font-size:0.72rem">
-                  {{ "{:+.1f}%".format((last_close - cg.atl) / cg.atl * 100) }} vs now
-                </span>
-                {% endif %}
-              {% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:160px">
-      <div class="card-body py-2 px-3">
-        <div class="text-muted small">OHLC Source</div>
-        <div class="fw-semibold fs-6">{{ data_source }}</div>
-      </div>
-    </div>
-  </div>
-
-  {% if info.platform %}
-  <div class="col-auto">
-    <div class="card shadow-sm border-info" style="min-width:160px">
-      <div class="card-body py-2 px-3">
-        <div class="text-muted small">Chain / Platform</div>
-        <div class="fw-semibold fs-6">{{ info.platform }}</div>
-        {% if info.token_address %}
-        <div class="text-muted" style="font-size:0.65rem; word-break:break-all">
-          {{ info.token_address }}
-        </div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-</div>
 
 <!-- Tab selector -->
 <div class="btn-group mb-3" role="group" aria-label="Detail view tabs">
@@ -148,6 +25,14 @@
     hx-include="#sma-input, #pos-input"
     hx-vals='{"tab": "performance"}'
   >Performance</button>
+  <button type="button"
+    class="btn btn-sm btn-outline-secondary{% if tab == 'fundamentals' %} active{% endif %}"
+    hx-get="/asset/{{ symbol }}"
+    hx-target="#detail-pane"
+    hx-swap="innerHTML"
+    hx-include="#sma-input, #pos-input"
+    hx-vals='{"tab": "fundamentals"}'
+  >Fundamentals</button>
 </div>
 
 {% if tab == "chart" %}
@@ -170,6 +55,42 @@
 
   <!-- Strategy panel -->
   <div style="flex: 1; min-width: 0">
+
+    <!-- SMA period spinner -->
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SMA period</label>
+      <input
+        id="sma-input"
+        type="number"
+        class="form-control"
+        style="width:110px; font-size:1.1rem"
+        min="1" max="500"
+        value="{{ sma_period }}"
+        hx-get="/asset/{{ symbol }}"
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+        hx-include="#pos-input, #tab-input"
+        name="sma"
+        hx-trigger="change"
+      />
+    </div>
+    <script>
+    (function () {
+      const inp = document.getElementById('sma-input');
+      if (!inp) return;
+      inp.addEventListener('keydown', function (e) {
+        let dir = 0;
+        if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+        if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+        if (dir === 0) return;
+        e.preventDefault();
+        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
+        const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
+        inp.value = next;
+        inp.dispatchEvent(new Event('change'));
+      });
+    })();
+    </script>
 
     <!-- Position size spinner -->
     <div class="d-flex align-items-center gap-2 mb-3">
@@ -264,10 +185,13 @@
   </div>
 </div>
 {% elif tab == "performance" %}
+<!-- Hidden sma-input so tab-switch back to chart preserves the SMA value -->
+<input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
 <!-- Performance stats table -->
 <div class="mt-1">
   {% if perf_rows %}
-  <table class="table table-sm table-bordered" style="max-width:680px; font-size:0.85rem">
+  {% set chart_colors = {'1D': '#1a6fcc', '7D': '#cc7700', '30D': '#2e8b2e'} %}
+  <table class="table table-sm table-bordered" style="max-width:760px; font-size:0.85rem">
     <thead class="table-dark">
       <tr>
         <th style="width:70px">Period</th>
@@ -275,16 +199,41 @@
         <th>Low</th>
         <th>VWAP</th>
         <th>Volume</th>
+        <th style="width:110px">Chart lines</th>
       </tr>
     </thead>
     <tbody>
       {% for row in perf_rows %}
       <tr>
         <td class="fw-semibold">{{ row.label }}</td>
-        <td>{% if row.high is not none %}${{ "{:,.4g}".format(row.high) }}{% else %}&mdash;{% endif %}</td>
-        <td>{% if row.low  is not none %}${{ "{:,.4g}".format(row.low)  }}{% else %}&mdash;{% endif %}</td>
-        <td>{% if row.vwap is not none %}${{ "{:,.4g}".format(row.vwap) }}{% else %}&mdash;{% endif %}</td>
+        <td>
+          {% if row.high is not none %}
+            ${{ "{:,.2f}".format(row.high) }}
+            {% if eur_usd_rate %}<br><span style="color:#0d6efd;font-size:0.8em">€{{ "{:,.2f}".format(row.high * eur_usd_rate) }}</span>{% endif %}
+          {% else %}&mdash;{% endif %}
+        </td>
+        <td>
+          {% if row.low is not none %}
+            ${{ "{:,.2f}".format(row.low) }}
+            {% if eur_usd_rate %}<br><span style="color:#0d6efd;font-size:0.8em">€{{ "{:,.2f}".format(row.low * eur_usd_rate) }}</span>{% endif %}
+          {% else %}&mdash;{% endif %}
+        </td>
+        <td>
+          {% if row.vwap is not none %}
+            ${{ "{:,.2f}".format(row.vwap) }}
+            {% if eur_usd_rate %}<br><span style="color:#0d6efd;font-size:0.8em">€{{ "{:,.2f}".format(row.vwap * eur_usd_rate) }}</span>{% endif %}
+          {% else %}&mdash;{% endif %}
+        </td>
         <td>{% if row.volume_usd is not none %}{{ row.volume_usd | fmt_usd }}{% else %}&mdash;{% endif %}</td>
+        <td>
+          {% if row.label in chart_colors %}{% set c = chart_colors[row.label] %}
+          <span style="display:inline-flex;align-items:center;gap:4px">
+            <span style="display:inline-block;width:26px;border-top:2px dashed {{ c }};vertical-align:middle"></span><span class="text-muted" style="font-size:0.72rem">H</span>
+            &nbsp;
+            <span style="display:inline-block;width:26px;border-top:2px dotted {{ c }};vertical-align:middle"></span><span class="text-muted" style="font-size:0.72rem">L</span>
+          </span>
+          {% else %}&mdash;{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -294,17 +243,184 @@
     VWAP: volume-weighted average price &mdash;
     Volume: total traded USD over the period
   </p>
-  {% if perf_chart_filename %}
-  <img
-    src="/png/{{ perf_chart_filename }}"
-    alt="{{ symbol }} 4H performance chart"
-    class="img-fluid rounded shadow-sm mt-3"
-    style="width:100%; max-width:100%"
-  />
-  {% endif %}
+  <div id="perf-chart" class="mt-3 border rounded" style="width:100%; height:500px"></div>
+  <script>
+  (function initPerfChart() {
+    const candles = {{ candles_4h_json | safe }};
+    const perfRows = {{ perf_rows | tojson | safe }};
+
+    if (!candles.length) {
+      document.getElementById('perf-chart').textContent = 'No chart data available.';
+      return;
+    }
+
+    // Wait one frame so the container has been laid out and clientWidth is valid
+    requestAnimationFrame(function () {
+      const container = document.getElementById('perf-chart');
+      const w = container.clientWidth || 900;
+
+      // Detect close-only data (CoinGecko): high == low == close on first candle
+      const isLineOnly = candles[0].high === candles[0].low && candles[0].low === candles[0].close;
+
+      const chart = LightweightCharts.createChart(container, {
+        width:  w,
+        height: 500,
+        layout: { background: { color: '#ffffff' }, textColor: '#333333' },
+        grid:   { vertLines: { color: '#e0e0e0' }, horzLines: { color: '#e0e0e0' } },
+        timeScale: { timeVisible: true, secondsVisible: false },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      });
+
+      let series;
+      if (isLineOnly) {
+        series = chart.addLineSeries({ color: '#555555', lineWidth: 1, title: 'Price' });
+        series.setData(candles.map(c => ({ time: c.time, value: c.close })));
+      } else {
+        series = chart.addCandlestickSeries({
+          upColor: '#26a69a', downColor: '#ef5350',
+          borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+          wickUpColor:   '#26a69a', wickDownColor:   '#ef5350',
+        });
+        series.setData(candles);
+      }
+
+      // Period H/L lines — drawn as short line series spanning only their window
+      const periodDefs = [
+        { label: '1D',  days:  1, color: '#1a6fcc' },
+        { label: '7D',  days:  7, color: '#cc7700' },
+        { label: '30D', days: 30, color: '#2e8b2e' },
+      ];
+      const rowsByLabel = {};
+      perfRows.forEach(r => { rowsByLabel[r.label] = r; });
+
+      const nowTime = candles[candles.length - 1].time;
+
+      periodDefs.forEach(({ label, days, color }) => {
+        const row = rowsByLabel[label];
+        if (!row) return;
+        const startTime = nowTime - days * 86400;
+
+        [
+          { value: row.high, lineStyle: LightweightCharts.LineStyle.Dashed,  suffix: ' H' },
+          { value: row.low,  lineStyle: LightweightCharts.LineStyle.Dotted,   suffix: ' L' },
+        ].forEach(({ value, lineStyle, suffix }) => {
+          if (value == null) return;
+          const s = chart.addLineSeries({
+            color,
+            lineWidth: 2,
+            lineStyle,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            title: label + suffix,
+            crosshairMarkerVisible: false,
+          });
+          s.setData([
+            { time: startTime, value },
+            { time: nowTime,   value },
+          ]);
+        });
+      });
+
+      chart.timeScale().fitContent();
+
+      new ResizeObserver(() => {
+        chart.applyOptions({ width: container.clientWidth });
+      }).observe(container);
+    });
+  })();
+  </script>
   {% else %}
   <p class="text-muted small">Performance data unavailable for {{ symbol }}.</p>
   {% endif %}
+</div>
+
+{% elif tab == "fundamentals" %}
+<input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
+<div class="row g-3 mt-1">
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Market Cap</div>
+        <div class="fw-semibold fs-6">
+          {% if market_cap_usd %}
+            ${{ "{:,.2f}".format(market_cap_usd / 1e9) }}B
+          {% else %}
+            &mdash;
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:180px">
+      <div class="card-body py-2 px-3">
+        <table style="font-size:0.82rem; line-height:1.6; border-collapse:collapse">
+          <tr>
+            <td class="text-muted pe-2">Launched</td>
+            <td class="fw-semibold">
+              {% if info.date_launched %}{{ info.date_launched[:10] }}{% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted pe-2">ATH</td>
+            <td class="fw-semibold">
+              {% if cg.ath %}
+                ${{ "{:,.4g}".format(cg.ath) }}
+                <span class="text-muted" style="font-size:0.72rem"> {{ cg.ath_date }}</span>
+                {% if last_close %}
+                <br/><span class="text-muted" style="font-size:0.72rem">
+                  {{ "{:+.1f}%".format((last_close - cg.ath) / cg.ath * 100) }} vs now
+                </span>
+                {% endif %}
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted pe-2">ATL</td>
+            <td class="fw-semibold">
+              {% if cg.atl %}
+                ${{ "{:,.4g}".format(cg.atl) }}
+                <span class="text-muted" style="font-size:0.72rem"> {{ cg.atl_date }}</span>
+                {% if last_close %}
+                <br/><span class="text-muted" style="font-size:0.72rem">
+                  {{ "{:+.1f}%".format((last_close - cg.atl) / cg.atl * 100) }} vs now
+                </span>
+                {% endif %}
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">OHLC Source</div>
+        <div class="fw-semibold fs-6">{{ data_source }}</div>
+      </div>
+    </div>
+  </div>
+
+  {% if info.platform %}
+  <div class="col-auto">
+    <div class="card shadow-sm border-info" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Chain / Platform</div>
+        <div class="fw-semibold fs-6">{{ info.platform }}</div>
+        {% if info.token_address %}
+        <div class="text-muted" style="font-size:0.65rem; word-break:break-all">
+          {{ info.token_address }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 
 {% endif %}

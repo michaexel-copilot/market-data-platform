@@ -1,0 +1,1 @@
+change the static png chart with a dynamic view where i can zoom in

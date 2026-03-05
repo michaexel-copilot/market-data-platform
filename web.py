@@ -23,7 +23,7 @@ from cmc_info import fetch_cmc_info, fetch_cmc_info_batch, fetch_market_caps  # 
 from cg_market import fetch_cg_market  # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
-from perf_data import compute_perf_rows, draw_perf_chart, fetch_4h_candles, fetch_5y_candles  # noqa: E402
+from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
@@ -46,6 +46,57 @@ def _fmt_usd(v: float | None) -> str:
 
 
 TEMPLATES.env.filters["fmt_usd"] = _fmt_usd
+
+
+# ---------------------------------------------------------------------------
+# EUR/USD exchange rate (cached per day)
+# ---------------------------------------------------------------------------
+
+import json as _json  # noqa: E402 (needed here for module-level cache)
+import requests as _requests  # noqa: E402
+
+_EUR_RATE_CACHE: dict = {}
+
+
+def fetch_eur_usd_rate() -> float:
+    """
+    Return today's USD→EUR rate (i.e. 1 USD = ? EUR).
+    Source: open.er-api.com (free, no key required).
+    Falls back to 0.92 if unavailable.
+    """
+    today = date.today().isoformat()
+    if _EUR_RATE_CACHE.get("date") == today:
+        return _EUR_RATE_CACHE["rate"]
+
+    cache_path = ROOT / "cache" / f"eur_usd_{today}.json"
+    if cache_path.exists():
+        try:
+            rate = float(_json.loads(cache_path.read_text())["rate"])
+            _EUR_RATE_CACHE.update(date=today, rate=rate)
+            return rate
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        resp = _requests.get(
+            "https://open.er-api.com/v6/latest/USD",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        rate = float(resp.json()["rates"]["EUR"])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] EUR/USD fetch failed: {exc}; using fallback 0.92")
+        rate = 0.92
+
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(_json.dumps({"rate": rate}))
+    except Exception:  # noqa: BLE001
+        pass
+
+    _EUR_RATE_CACHE.update(date=today, rate=rate)
+    return rate
+
 
 app = FastAPI(title="Short Opportunities")
 app.mount("/png", StaticFiles(directory=str(PNG_DIR)), name="png")
@@ -228,8 +279,9 @@ async def asset_detail(
         chart_filename = _get_or_create_chart(sym_upper, sma)
 
     # Performance data — only fetched when the Performance tab is active
+    import json as _json
     perf_rows: list[dict] = []
-    perf_chart_filename: str | None = None
+    candles_4h_json: str = "[]"
     if tab == "performance":
         try:
             candles_5y = fetch_5y_candles(sym_upper)
@@ -238,8 +290,16 @@ async def asset_detail(
             print(f"[web] perf data failed for {sym_upper}: {exc}")
         try:
             candles_4h = fetch_4h_candles(sym_upper)
-            path_4h    = draw_perf_chart(sym_upper, perf_rows, candles_4h)
-            perf_chart_filename = path_4h.name if path_4h else None
+            candles_4h_json = _json.dumps([
+                {
+                    "time":  int(c["date"].timestamp()),
+                    "open":  c["open"],
+                    "high":  c["high"],
+                    "low":   c["low"],
+                    "close": c["close"],
+                }
+                for c in candles_4h
+            ])
         except Exception as exc:  # noqa: BLE001
             print(f"[web] perf chart failed for {sym_upper}: {exc}")
 
@@ -279,7 +339,8 @@ async def asset_detail(
             "highlight":      highlight,
             "tab":               tab,
             "perf_rows":         perf_rows,
-            "perf_chart_filename": perf_chart_filename,
+            "candles_4h_json":   candles_4h_json,
+            "eur_usd_rate":      fetch_eur_usd_rate() if tab == "performance" else None,
         },
     )
 
