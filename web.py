@@ -23,12 +23,29 @@ from cmc_info import fetch_cmc_info, fetch_cmc_info_batch, fetch_market_caps  # 
 from cg_market import fetch_cg_market  # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
+from perf_data import compute_perf_rows, fetch_5y_candles  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
 
 PNG_DIR   = ROOT / "png"
 TEMPLATES = Jinja2Templates(directory=str(ROOT / "templates"))
+
+
+def _fmt_usd(v: float | None) -> str:
+    """Compact USD formatter: $1.23B / $456.78M / $1.23K / $0.99"""
+    if v is None:
+        return "\u2014"
+    if v >= 1e9:
+        return f"${v / 1e9:.2f}B"
+    if v >= 1e6:
+        return f"${v / 1e6:.2f}M"
+    if v >= 1e3:
+        return f"${v / 1e3:.2f}K"
+    return f"${v:.2f}"
+
+
+TEMPLATES.env.filters["fmt_usd"] = _fmt_usd
 
 app = FastAPI(title="Short Opportunities")
 app.mount("/png", StaticFiles(directory=str(PNG_DIR)), name="png")
@@ -180,6 +197,7 @@ async def asset_detail(
     sma: int = 44,
     pos: int = 100,
     highlight: str | None = None,
+    tab: str = "chart",
 ) -> HTMLResponse:
     sym_upper = symbol.upper()
     asset = ASSET_BY_SYMBOL.get(sym_upper)
@@ -208,6 +226,15 @@ async def asset_detail(
         chart_filename = _get_or_create_highlighted_chart(sym_upper, sma, highlight_trade)
     else:
         chart_filename = _get_or_create_chart(sym_upper, sma)
+
+    # Performance data — only fetched when the Performance tab is active
+    perf_rows: list[dict] = []
+    if tab == "performance":
+        try:
+            candles_5y = fetch_5y_candles(sym_upper)
+            perf_rows  = compute_perf_rows(candles_5y)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[web] perf data failed for {sym_upper}: {exc}")
 
     # Format trades for template (convert datetimes to strings)
     last_close = candles[-1]["close"] if candles else None
@@ -243,6 +270,8 @@ async def asset_detail(
             "pos_usd":        pos,
             "trades":         trades,
             "highlight":      highlight,
+            "tab":            tab,
+            "perf_rows":      perf_rows,
         },
     )
 

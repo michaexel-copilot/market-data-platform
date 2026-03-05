@@ -16,12 +16,13 @@
       hx-get="/asset/{{ symbol }}"
       hx-target="#detail-pane"
       hx-swap="innerHTML"
-      hx-include="#pos-input"
+      hx-include="#pos-input, #tab-input"
       name="sma"
       hx-trigger="change"
     />
   </div>
 </div>
+<input type="hidden" id="tab-input" name="tab" value="{{ tab }}">
 <script>
 (function () {
   const inp = document.getElementById('sma-input');
@@ -129,6 +130,27 @@
 
 </div>
 
+<!-- Tab selector -->
+<div class="btn-group mb-3" role="group" aria-label="Detail view tabs">
+  <button type="button"
+    class="btn btn-sm btn-outline-secondary{% if tab == 'chart' %} active{% endif %}"
+    hx-get="/asset/{{ symbol }}"
+    hx-target="#detail-pane"
+    hx-swap="innerHTML"
+    hx-include="#sma-input, #pos-input"
+    hx-vals='{"tab": "chart"}'
+  >Chart &amp; Trades</button>
+  <button type="button"
+    class="btn btn-sm btn-outline-secondary{% if tab == 'performance' %} active{% endif %}"
+    hx-get="/asset/{{ symbol }}"
+    hx-target="#detail-pane"
+    hx-swap="innerHTML"
+    hx-include="#sma-input, #pos-input"
+    hx-vals='{"tab": "performance"}'
+  >Performance</button>
+</div>
+
+{% if tab == "chart" %}
 <!-- Two-column: chart (left) + strategy panel (right) -->
 <div class="d-flex gap-3 align-items-start mt-2">
 
@@ -163,7 +185,7 @@
         hx-get="/asset/{{ symbol }}"
         hx-target="#detail-pane"
         hx-swap="innerHTML"
-        hx-include="#sma-input"
+        hx-include="#sma-input, #tab-input"
         hx-trigger="change"
       />
     </div>
@@ -191,7 +213,7 @@
           hx-get="/asset/{{ symbol }}"
           hx-target="#detail-pane"
           hx-swap="innerHTML"
-          hx-include="#sma-input, #pos-input"
+          hx-include="#sma-input, #pos-input, #tab-input"
           hx-vals='{"highlight": "{{ trade.entry_date }}"}'
         >
           <td>{{ loop.index }}</td>
@@ -241,3 +263,40 @@
 
   </div>
 </div>
+{% elif tab == "performance" %}
+<!-- Performance stats table -->
+<div class="mt-1">
+  {% if perf_rows %}
+  <table class="table table-sm table-bordered" style="max-width:680px; font-size:0.85rem">
+    <thead class="table-dark">
+      <tr>
+        <th style="width:70px">Period</th>
+        <th>High</th>
+        <th>Low</th>
+        <th>VWAP</th>
+        <th>Volume</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in perf_rows %}
+      <tr>
+        <td class="fw-semibold">{{ row.label }}</td>
+        <td>{% if row.high is not none %}${{ "{:,.4g}".format(row.high) }}{% else %}&mdash;{% endif %}</td>
+        <td>{% if row.low  is not none %}${{ "{:,.4g}".format(row.low)  }}{% else %}&mdash;{% endif %}</td>
+        <td>{% if row.vwap is not none %}${{ "{:,.4g}".format(row.vwap) }}{% else %}&mdash;{% endif %}</td>
+        <td>{% if row.volume_usd is not none %}{{ row.volume_usd | fmt_usd }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="text-muted" style="font-size:0.75rem; max-width:680px">
+    High &amp; Low: exact price range (Yahoo Finance) or daily-close range (CoinGecko sources) &mdash;
+    VWAP: volume-weighted average price &mdash;
+    Volume: total traded USD over the period
+  </p>
+  {% else %}
+  <p class="text-muted small">Performance data unavailable for {{ symbol }}.</p>
+  {% endif %}
+</div>
+
+{% endif %}
