@@ -63,7 +63,7 @@ def fetch_cmc_info(cmc_symbol: str) -> dict:
         _cache[sym] = disk
         return disk
 
-    empty = {"name": sym, "date_launched": None, "platform": None, "token_address": None}
+    empty = {"name": sym, "date_launched": None, "platform": None, "token_address": None, "slug": None}
     try:
         headers = {"X-CMC_PRO_API_KEY": cmc_key, "Accept": "application/json"}
         params = {"symbol": sym}
@@ -93,6 +93,7 @@ def fetch_cmc_info(cmc_symbol: str) -> dict:
             "date_launched": date_launched,
             "platform":      platform.get("name") if platform else None,
             "token_address": platform.get("token_address") if platform else None,
+            "slug":          entry.get("slug"),
         }
         _cache[sym] = result
         _save_disk_cache(sym, result)
@@ -202,7 +203,7 @@ def fetch_cmc_info_batch(hl_symbols: list[str]) -> dict[str, dict]:
         cmc_to_hl.setdefault(cs, []).append(hl)
 
     def _empty(sym: str) -> dict:
-        return {"name": sym, "date_launched": None, "platform": None, "token_address": None}
+        return {"name": sym, "date_launched": None, "platform": None, "token_address": None, "slug": None}
 
     headers = {"X-CMC_PRO_API_KEY": cmc_key, "Accept": "application/json"}
     cmc_syms = list(cmc_to_hl.keys())
@@ -235,6 +236,7 @@ def fetch_cmc_info_batch(hl_symbols: list[str]) -> dict[str, dict]:
                         "date_launched": dl,
                         "platform":      platform.get("name") if platform else None,
                         "token_address": platform.get("token_address") if platform else None,
+                        "slug":          entry.get("slug"),
                     }
                 _cache[cs] = info
                 _save_disk_cache(cs, info)

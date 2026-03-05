@@ -1,6 +1,9 @@
 <!-- asset_detail.html — HTMX partial returned by GET /asset/{symbol} -->
 <div class="mb-3 d-flex align-items-center gap-3">
-  <h2 class="mb-0">{{ info.name }} <small class="text-muted fs-5">({{ symbol }})</small></h2>
+  <h2 class="mb-0">
+    {% if info.slug %}<a href="https://coinmarketcap.com/currencies/{{ info.slug }}/" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-reset">{{ info.name }}</a>{% else %}{{ info.name }}{% endif %}
+    <small class="text-muted fs-5">({{ symbol }})</small>
+  </h2>
   <div class="d-flex align-items-center gap-2 ms-auto">
     <label class="form-label mb-0 text-muted" style="font-size:1.3rem">SMA period</label>
     <input
