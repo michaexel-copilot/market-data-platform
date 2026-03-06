@@ -70,6 +70,7 @@ CG_COIN_ID_MAP: dict[str, str] = {
     "S":      "sonic-3",                 # Sonic (rebranded from FTM)
     "STG":    "stargate-finance",        # Stargate
     "ZORA":   "zora",                    # Zora
+    "WCT":    "connect-token-wct",       # WalletConnect Token
 }
 
 CG_OHLC_URL = "https://api.coingecko.com/api/v3/coins/{id}/ohlc"

@@ -296,6 +296,7 @@ async def asset_detail(
     cg   = fetch_cg_market(sym_upper)
 
     # Compute candles + SMAs for backtest
+    candles: list[dict] = []
     try:
         candles, _, _, sma_low_vals = prepare_chart_data(sym_upper, sma)
         raw_trades = backtest_strategy(candles, sma_low_vals, position_size_usd=float(pos))
