@@ -321,6 +321,19 @@
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       });
 
+      const rowsByLabel = {};
+      perfRows.forEach(r => { rowsByLabel[r.label] = r; });
+
+      // Pin y-axis: ATH at 95% mark, ATL at 5% mark.
+      // padding = (ATH - ATL) / 18  → gives exactly 5% margin on each side.
+      const row30d = rowsByLabel['30D'];
+      let autoscaleProvider = null;
+      if (row30d && row30d.high != null && row30d.low != null) {
+        const pad = (row30d.high - row30d.low) / 18;
+        const priceRange = { minValue: row30d.low - pad, maxValue: row30d.high + pad };
+        autoscaleProvider = () => ({ priceRange });
+      }
+
       let series;
       if (isLineOnly) {
         series = chart.addLineSeries({ color: '#555555', lineWidth: 1, title: 'Price' });
@@ -333,6 +346,7 @@
         });
         series.setData(candles);
       }
+      if (autoscaleProvider) series.applyOptions({ autoscaleInfoProvider: autoscaleProvider });
 
       // Period H/L lines — drawn as short line series spanning only their window
       const periodDefs = [
@@ -340,10 +354,11 @@
         { label: '7D',  days:  7, color: '#cc7700' },
         { label: '30D', days: 30, color: '#2e8b2e' },
       ];
-      const rowsByLabel = {};
-      perfRows.forEach(r => { rowsByLabel[r.label] = r; });
 
       const nowTime = candles[candles.length - 1].time;
+      const barInterval = candles.length >= 2
+        ? candles[candles.length - 1].time - candles[candles.length - 2].time
+        : 14400; // fallback: 4H in seconds
 
       periodDefs.forEach(({ label, days, color }) => {
         const row = rowsByLabel[label];
@@ -363,6 +378,7 @@
             priceLineVisible: false,
             title: label + suffix,
             crosshairMarkerVisible: false,
+            ...(autoscaleProvider ? { autoscaleInfoProvider: autoscaleProvider } : {}),
           });
           s.setData([
             { time: startTime, value },
@@ -371,7 +387,7 @@
         });
       });
 
-      chart.timeScale().fitContent();
+      chart.timeScale().setVisibleRange({ from: nowTime - 35 * 86400, to: nowTime + barInterval * 12 });
 
       new ResizeObserver(() => {
         chart.applyOptions({ width: container.clientWidth });
