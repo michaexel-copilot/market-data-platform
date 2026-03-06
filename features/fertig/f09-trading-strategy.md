@@ -12,4 +12,4 @@ when clicking on the table on a specific row draw a thin cross on the entry poin
 
 Add a spinner above the grid/table with starting value 100 $ and use this as base of the trades. the increment of the spinner is +/- 100 $ but > 0.
 
-If something is unclear ur ambiguous aske me to clear your questions.
+If something is unclear or ambiguous aske me to clear your questions.

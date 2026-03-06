@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
@@ -24,6 +25,7 @@ from cg_market import fetch_cg_market  # noqa: E402
 from draw_chart import backtest_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # noqa: E402
+from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
@@ -249,6 +251,7 @@ async def asset_detail(
     pos: int = 100,
     highlight: str | None = None,
     tab: str = "chart",
+    resolution: str = "4h",
 ) -> HTMLResponse:
     sym_upper = symbol.upper()
     asset = ASSET_BY_SYMBOL.get(sym_upper)
@@ -289,7 +292,7 @@ async def asset_detail(
         except Exception as exc:  # noqa: BLE001
             print(f"[web] perf data failed for {sym_upper}: {exc}")
         try:
-            candles_4h = fetch_4h_candles(sym_upper)
+            candles_4h = fetch_4h_candles(sym_upper, resolution=resolution)
             candles_4h_json = _json.dumps([
                 {
                     "time":  int(c["date"].timestamp()),
@@ -302,6 +305,25 @@ async def asset_detail(
             ])
         except Exception as exc:  # noqa: BLE001
             print(f"[web] perf chart failed for {sym_upper}: {exc}")
+
+    # Order tab — 30D H/L for TP/SL defaults + pairs metadata
+    order_ctx: dict | None = None
+    if tab == "order":
+        pair_meta = get_pair_meta(sym_upper, testnet=True)
+        try:
+            candles_5y_ord = fetch_5y_candles(sym_upper)
+            perf_ord = compute_perf_rows(candles_5y_ord)
+            row_30d = next((r for r in perf_ord if r["label"] == "30D"), None)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[web] order context 30D fetch failed for {sym_upper}: {exc}")
+            row_30d = None
+        order_ctx = {
+            "high_30d":     row_30d["high"] if row_30d else None,
+            "low_30d":      row_30d["low"]  if row_30d else None,
+            "max_leverage": int(pair_meta.max_leverage) if pair_meta else 10,
+            "lot_size":     pair_meta.lot_size          if pair_meta else 1.0,
+            "hl_symbol":    pair_meta.hl_symbol         if pair_meta else f"{sym_upper}/USDC:USDC",
+        }
 
     # Format trades for template (convert datetimes to strings)
     last_close = candles[-1]["close"] if candles else None
@@ -340,9 +362,53 @@ async def asset_detail(
             "tab":               tab,
             "perf_rows":         perf_rows,
             "candles_4h_json":   candles_4h_json,
+            "chart_resolution":  resolution,
             "eur_usd_rate":      fetch_eur_usd_rate() if tab == "performance" else None,
+            "order_ctx":         order_ctx,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Order placement API
+# ---------------------------------------------------------------------------
+
+class OrderRequest(BaseModel):
+    side: str
+    order_type: str
+    size_usd: float
+    leverage: int
+    margin_type: str
+    reduce_only: bool
+    tp_price: float | None = None
+    sl_price: float | None = None
+    limit_price: float | None = None
+    testnet: bool = True
+
+
+@app.post("/asset/{symbol}/order")
+async def place_order_endpoint(symbol: str, body: OrderRequest) -> JSONResponse:
+    result = await hl_place_order(
+        base_symbol=symbol.upper(),
+        side=body.side,          # type: ignore[arg-type]
+        order_type=body.order_type,  # type: ignore[arg-type]
+        size_usd=body.size_usd,
+        leverage=body.leverage,
+        margin_type=body.margin_type,  # type: ignore[arg-type]
+        reduce_only=body.reduce_only,
+        tp_price=body.tp_price,
+        sl_price=body.sl_price,
+        limit_price=body.limit_price,
+        testnet=body.testnet,
+    )
+    if result["ok"]:
+        return JSONResponse({
+            "ok": True,
+            "order_id":    result["order_id"],
+            "tp_order_id": result.get("tp_order_id"),
+            "sl_order_id": result.get("sl_order_id"),
+        })
+    return JSONResponse({"ok": False, "error": result["error"]}, status_code=400)
 
 
 # ---------------------------------------------------------------------------

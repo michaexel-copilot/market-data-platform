@@ -11,6 +11,8 @@ dependencies = [
     "fastapi>=0.133.0",
     "uvicorn[standard]>=0.41.0",
     "jinja2>=3.1.6",
+    "hl-client",
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]
@@ -21,6 +23,9 @@ serve = "web:main"
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+hl-client = {path = "/work/projekte/hyperliquid-python/hl_client"}
 
 [build-system]
 requires = ["hatchling"]
@@ -34,5 +39,6 @@ only-include = [
     "draw_all_charts.py",
     "cmc_info.py",
     "web.py",
+    "hl_order.py",
     "templates",
 ]

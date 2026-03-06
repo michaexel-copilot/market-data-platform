@@ -71,7 +71,7 @@ def _fetch_5y_yf(yf_ticker: str) -> list[dict]:
 
     candles = []
     for ts, row in hist.iterrows():
-        dt = ts.to_pydatetime()
+        dt = ts.to_pydatetime()  # type: ignore[union-attr]
         vol_usd = float(row.get("Volume") or 0)
         candles.append({
             "date":       dt,
@@ -239,13 +239,18 @@ def compute_perf_rows(candles_5y: list[dict]) -> list[dict]:
 # 4-hourly candle fetch
 # ---------------------------------------------------------------------------
 
-def _4h_cache_path(source_key: str) -> Path:
+def _candle_cache_path(source_key: str, resolution: str) -> Path:
     safe = source_key.replace("/", "_").replace(":", "_")
-    return CACHE_DIR / f"{safe}_4h_{date.today()}.json"
+    return CACHE_DIR / f"{safe}_{resolution}_{date.today()}.json"
 
 
-def _load_4h_cache(source_key: str) -> list[dict] | None:
-    path = _4h_cache_path(source_key)
+# Keep legacy 4h names as thin wrappers so draw_perf_chart callers still work
+def _4h_cache_path(source_key: str) -> Path:
+    return _candle_cache_path(source_key, "4h")
+
+
+def _load_candle_cache(source_key: str, resolution: str) -> list[dict] | None:
+    path = _candle_cache_path(source_key, resolution)
     if not path.exists():
         return None
     try:
@@ -257,11 +262,19 @@ def _load_4h_cache(source_key: str) -> list[dict] | None:
         return None
 
 
-def _save_4h_cache(source_key: str, candles: list[dict]) -> None:
+def _load_4h_cache(source_key: str) -> list[dict] | None:
+    return _load_candle_cache(source_key, "4h")
+
+
+def _save_candle_cache(source_key: str, resolution: str, candles: list[dict]) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _4h_cache_path(source_key)
+    path = _candle_cache_path(source_key, resolution)
     serialisable = [{**c, "date": c["date"].isoformat()} for c in candles]
     path.write_text(json.dumps(serialisable))
+
+
+def _save_4h_cache(source_key: str, candles: list[dict]) -> None:
+    _save_candle_cache(source_key, "4h", candles)
 
 
 def _resample_1h_to_4h(hourly: list[dict]) -> list[dict]:
@@ -296,8 +309,8 @@ def _resample_1h_to_4h(hourly: list[dict]) -> list[dict]:
     return result
 
 
-def _fetch_4h_yf(source_key: str, multiplier: float) -> list[dict]:
-    """Fetch 90 days of hourly data from Yahoo Finance, resampled to 4H."""
+def _fetch_hourly_yf(source_key: str, multiplier: float) -> list[dict]:
+    """Fetch 90 days of 1H candles from Yahoo Finance (raw, not resampled)."""
     import yfinance as yf
 
     hist = yf.Ticker(source_key).history(period="3mo", interval="1h", auto_adjust=True)
@@ -306,7 +319,7 @@ def _fetch_4h_yf(source_key: str, multiplier: float) -> list[dict]:
 
     hourly = []
     for ts, row in hist.iterrows():
-        dt = ts.to_pydatetime()
+        dt = ts.to_pydatetime()  # type: ignore[union-attr]
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         vol_usd = float(row.get("Volume") or 0)
@@ -319,14 +332,19 @@ def _fetch_4h_yf(source_key: str, multiplier: float) -> list[dict]:
             "volume": vol_usd if vol_usd > 0 else None,
         })
     hourly.sort(key=lambda c: c["date"])
-    return _resample_1h_to_4h(hourly)
+    return hourly
 
 
-def _fetch_4h_cg(cg_id: str, multiplier: float) -> list[dict]:
+def _fetch_4h_yf(source_key: str, multiplier: float) -> list[dict]:
+    """Fetch 90 days of hourly data from Yahoo Finance, resampled to 4H."""
+    return _resample_1h_to_4h(_fetch_hourly_yf(source_key, multiplier))
+
+
+def _fetch_hourly_cg(cg_id: str, multiplier: float) -> list[dict]:
     """
-    Fetch 90 days of hourly data from CoinGecko, resampled to 4H.
+    Fetch 90 days of hourly data from CoinGecko (raw, not resampled).
     CoinGecko free-tier returns hourly data for days <= 90.
-    H/L/O are all set to close (no intraday range available).
+    H/L/O are all set to close (no intraday range available from this endpoint).
     """
     resp = requests.get(
         CG_MARKET_CHART_URL.format(id=cg_id),
@@ -352,30 +370,38 @@ def _fetch_4h_cg(cg_id: str, multiplier: float) -> list[dict]:
             "volume": vol if vol and vol > 0 else None,
         })
     hourly.sort(key=lambda c: c["date"])
-    return _resample_1h_to_4h(hourly)
+    return hourly
 
 
-def fetch_4h_candles(hl_symbol: str) -> list[dict]:
+def _fetch_4h_cg(cg_id: str, multiplier: float) -> list[dict]:
+    """Fetch 90 days of hourly data from CoinGecko, resampled to 4H."""
+    return _resample_1h_to_4h(_fetch_hourly_cg(cg_id, multiplier))
+
+
+def fetch_4h_candles(hl_symbol: str, resolution: str = "4h") -> list[dict]:
     """
-    Fetch ~90 days of 4-hourly candles for a Hyperliquid symbol.
-    YF symbols get true OHLCV (1H resampled); CG symbols get close-only line data.
-    Cached to disk for the current day.
+    Fetch ~90 days of candles for a Hyperliquid symbol.
+
+    resolution: "4h" (default) or "1h".
+    YF symbols return true OHLCV; CG symbols return close-only data.
+    Cached to disk per resolution per day.
     """
     source_key, multiplier = resolve_source_key(hl_symbol)
 
-    cached = _load_4h_cache(source_key)
+    cached = _load_candle_cache(source_key, resolution)
     if cached is not None:
         return cached
 
     if source_key.startswith("cg:"):
         cg_id = source_key[3:]
-        print(f"[perf_data] fetching 4H from CoinGecko: {cg_id}")
-        candles = _fetch_4h_cg(cg_id, multiplier)
+        print(f"[perf_data] fetching {resolution.upper()} from CoinGecko: {cg_id}")
+        hourly = _fetch_hourly_cg(cg_id, multiplier)
     else:
-        print(f"[perf_data] fetching 4H from Yahoo Finance: {source_key}")
-        candles = _fetch_4h_yf(source_key, multiplier)
+        print(f"[perf_data] fetching {resolution.upper()} from Yahoo Finance: {source_key}")
+        hourly = _fetch_hourly_yf(source_key, multiplier)
 
-    _save_4h_cache(source_key, candles)
+    candles = hourly if resolution == "1h" else _resample_1h_to_4h(hourly)
+    _save_candle_cache(source_key, resolution, candles)
     return candles
 
 

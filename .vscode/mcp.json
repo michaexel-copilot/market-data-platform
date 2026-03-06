@@ -1,0 +1,9 @@
+// .vscode/mcp.json  (workspace)  or  settings.json (user)
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
