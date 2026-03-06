@@ -14,7 +14,7 @@
     hx-get="/asset/{{ symbol }}"
     hx-target="#detail-pane"
     hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input"
+    hx-include="#sma-input, #pos-input, #network-input"
     hx-vals='{"tab": "chart"}'
   >Chart &amp; Trades</button>
   <button type="button"
@@ -22,7 +22,7 @@
     hx-get="/asset/{{ symbol }}"
     hx-target="#detail-pane"
     hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input, #resolution-input"
+    hx-include="#sma-input, #pos-input, #resolution-input, #network-input"
     hx-vals='{"tab": "performance"}'
   >Performance</button>
   <button type="button"
@@ -30,7 +30,7 @@
     hx-get="/asset/{{ symbol }}"
     hx-target="#detail-pane"
     hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input"
+    hx-include="#sma-input, #pos-input, #network-input"
     hx-vals='{"tab": "fundamentals"}'
   >Fundamentals</button>
   <button type="button"
@@ -38,7 +38,7 @@
     hx-get="/asset/{{ symbol }}"
     hx-target="#detail-pane"
     hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input"
+    hx-include="#sma-input, #pos-input, #network-input"
     hx-vals='{"tab": "order"}'
   >Place Order</button>
 </div>
@@ -482,17 +482,6 @@
   <div class="card-body">
     <form id="order-form" onsubmit="return false">
 
-      <!-- Network -->
-      <div class="mb-3 d-flex align-items-center gap-3">
-        <span class="fw-semibold" style="min-width:130px">Network</span>
-        <div class="btn-group btn-group-sm" role="group">
-          <input type="radio" class="btn-check" name="network" id="net-testnet" value="testnet" checked>
-          <label class="btn btn-outline-secondary" for="net-testnet">Testnet</label>
-          <input type="radio" class="btn-check" name="network" id="net-mainnet" value="mainnet">
-          <label class="btn btn-outline-danger" for="net-mainnet">Mainnet</label>
-        </div>
-      </div>
-
       <!-- Margin -->
       <div class="mb-3 d-flex align-items-center gap-3">
         <span class="fw-semibold" style="min-width:130px">Margin</span>
@@ -624,19 +613,20 @@
   const high30d      = {{ order_ctx.high_30d | tojson }};
   const low30d       = {{ order_ctx.low_30d | tojson }};
 
-  // ── Network toggle → red border ──────────────────────────────────────────
-  document.querySelectorAll('input[name="network"]').forEach(r => {
-    r.addEventListener('change', () => {
-      const card = document.getElementById('order-form-card');
-      if (r.value === 'mainnet' && r.checked) {
-        card.style.outline = '4px solid #dc3545';
-        card.style.boxShadow = '0 0 0 0.25rem rgba(220,53,69,.3)';
-      } else if (r.value === 'testnet' && r.checked) {
-        card.style.outline = '';
-        card.style.boxShadow = '';
-      }
-    });
-  });
+  // ── Network border — driven by sidebar toggle ─────────────────────────────────────────
+  function updateNetworkBorder(net) {
+    const card = document.getElementById('order-form-card');
+    if (!card) return;
+    if (net === 'mainnet') {
+      card.style.outline = '4px solid #dc3545';
+      card.style.boxShadow = '0 0 0 0.25rem rgba(220,53,69,.3)';
+    } else {
+      card.style.outline = '';
+      card.style.boxShadow = '';
+    }
+  }
+  updateNetworkBorder(window.currentNetwork || 'testnet');
+  document.addEventListener('networkchange', e => updateNetworkBorder(e.detail.network));
 
   // ── Side → leverage default (2 for short, 1 for long) ────────────────────
   document.querySelectorAll('input[name="side"]').forEach(r => {
@@ -742,7 +732,7 @@
   // ── Place Order → populate and show confirmation modal ───────────────────
   document.getElementById('btn-place-order').addEventListener('click', () => {
     const form      = document.getElementById('order-form');
-    const network   = form.querySelector('input[name="network"]:checked')?.value   || 'testnet';
+    const network   = window.currentNetwork || 'testnet';
     const margin    = form.querySelector('input[name="margin"]:checked')?.value    || 'cross';
     const side      = form.querySelector('input[name="side"]:checked')?.value      || 'sell';
     const orderType = form.querySelector('input[name="order_type"]:checked')?.value || 'market';

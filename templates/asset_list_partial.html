@@ -1,0 +1,30 @@
+{% for asset in assets %}
+<div
+  class="asset-item"
+  tabindex="0"
+  hx-get="/asset/{{ asset.symbol }}"
+  hx-target="#detail-pane"
+  hx-swap="innerHTML"
+  data-symbol="{{ asset.symbol }}"
+  data-rank="{{ asset.rank }}"
+  data-mcap="{{ asset.market_cap_usd if asset.market_cap_usd else '' }}"
+  hx-indicator="#loading-indicator"
+  onclick="activateItem(this)"
+  onkeydown="if(event.key==='Enter') activateItem(this)"
+>
+  <span class="item-label">
+    <span class="rank">#{{ asset.rank }}</span>
+    <strong>{{ asset.symbol }}</strong>
+    {% if asset.market_cap_usd %}
+    <br/><span class="mcap">${{ "{:,.3f}".format(asset.market_cap_usd / 1e9) }}B</span>
+    {% endif %}
+    {% if asset.date_launched %}
+    <br/><span class="mcap">{{ asset.date_launched }}</span>
+    {% endif %}
+  </span>
+  <button class="icon-btn fav-btn" title="Add to favourites"
+    onclick="event.stopPropagation(); toggleFav(this.closest('.asset-item').dataset.symbol)">&#9733;</button>
+  <button class="icon-btn ign-btn" title="Ignore"
+    onclick="event.stopPropagation(); addIgnore(this.closest('.asset-item').dataset.symbol)">&#10005;</button>
+</div>
+{% endfor %}

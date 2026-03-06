@@ -29,6 +29,7 @@ from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
+HL_TESTNET_PAIRS_CSV = ROOT / "hl_testnet_pairs_with_mcap.csv"
 
 PNG_DIR   = ROOT / "png"
 TEMPLATES = Jinja2Templates(directory=str(ROOT / "templates"))
@@ -145,8 +146,32 @@ def _load_assets() -> list[dict[str, Any]]:
     return assets
 
 
-ASSETS: list[dict[str, Any]] = _load_assets()
-ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {a["symbol"]: a for a in ASSETS}
+def _load_testnet_assets() -> list[dict[str, Any]]:
+    assets: list[dict[str, Any]] = []
+    with open(HL_TESTNET_PAIRS_CSV, newline="") as f:
+        for row in csv.DictReader(f):
+            mcap_str = row.get("market_cap_usd", "")
+            mcap = float(mcap_str) if mcap_str else None
+            assets.append({
+                "rank":           0,
+                "symbol":         row["base"].upper(),
+                "cmc_symbol":     row.get("cmc_symbol") or row["base"].upper(),
+                "market_cap_usd": mcap,
+                "date_launched":  None,
+            })
+    assets.sort(key=lambda a: (a["market_cap_usd"] or 0.0), reverse=True)
+    for i, a in enumerate(assets, 1):
+        a["rank"] = i
+    print(f"[web] Loaded {len(assets)} testnet assets.")
+    return assets
+
+
+MAINNET_ASSETS: list[dict[str, Any]] = _load_assets()
+TESTNET_ASSETS: list[dict[str, Any]] = _load_testnet_assets()
+ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {
+    **{a["symbol"]: a for a in TESTNET_ASSETS},
+    **{a["symbol"]: a for a in MAINNET_ASSETS},  # mainnet takes precedence
+}
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +264,16 @@ async def lists_ignore_remove(symbol: str) -> JSONResponse:
 async def index(request: Request) -> HTMLResponse:
     return TEMPLATES.TemplateResponse(
         "index.html",
-        {"request": request, "assets": ASSETS},
+        {"request": request, "assets": TESTNET_ASSETS},
+    )
+
+
+@app.get("/assets-list", response_class=HTMLResponse)
+async def assets_list(request: Request, network: str = "testnet") -> HTMLResponse:
+    assets = TESTNET_ASSETS if network == "testnet" else MAINNET_ASSETS
+    return TEMPLATES.TemplateResponse(
+        "asset_list_partial.html",
+        {"request": request, "assets": assets},
     )
 
 
@@ -252,6 +286,7 @@ async def asset_detail(
     highlight: str | None = None,
     tab: str = "chart",
     resolution: str = "4h",
+    network: str = "testnet",
 ) -> HTMLResponse:
     sym_upper = symbol.upper()
     asset = ASSET_BY_SYMBOL.get(sym_upper)
@@ -309,7 +344,7 @@ async def asset_detail(
     # Order tab — 30D H/L for TP/SL defaults + pairs metadata
     order_ctx: dict | None = None
     if tab == "order":
-        pair_meta = get_pair_meta(sym_upper, testnet=True)
+        pair_meta = get_pair_meta(sym_upper, testnet=(network == "testnet"))
         try:
             candles_5y_ord = fetch_5y_candles(sym_upper)
             perf_ord = compute_perf_rows(candles_5y_ord)
