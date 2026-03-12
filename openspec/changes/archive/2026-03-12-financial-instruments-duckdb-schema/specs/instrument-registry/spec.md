@@ -1,0 +1,71 @@
+## ADDED Requirements
+
+### Requirement: Instrument core record
+The system SHALL maintain a canonical `instruments` table that stores one row per tradeable instrument with fields: `instrument_id` (UUID, primary key), `ticker`, `full_name`, `description`, `asset_class`, `exchange`, `sector`, `industry`, `quote_currency`, `launch_date`, `is_active`, `logo_url`, `website_url`, `data_sources` (JSON array), `first_seen_at`, `last_updated_at`.
+
+#### Scenario: New instrument inserted
+- **WHEN** an instrument is ingested for the first time
+- **THEN** a row is created in `instruments` with a generated UUID `instrument_id`, `is_active = TRUE`, and `first_seen_at` set to the current UTC timestamp
+
+#### Scenario: Duplicate instrument skipped
+- **WHEN** an ingestion run attempts to insert an instrument that already exists (matched by `ticker` + `exchange` + `asset_class`)
+- **THEN** the existing row is updated (`last_updated_at`, mutable fields) rather than creating a duplicate
+
+#### Scenario: Delisted instrument soft-deleted
+- **WHEN** a provider signals that an instrument is no longer active
+- **THEN** `is_active` is set to `FALSE` and `last_updated_at` is updated; the row is NOT physically deleted
+
+---
+
+### Requirement: Asset-class-specific attribute tables
+The system SHALL maintain separate per-asset-class attribute tables (`instrument_crypto`, `instrument_equity`, `instrument_etf`, `instrument_fx`, `instrument_commodity`) each with a foreign key `instrument_id` referencing `instruments`. Fields are defined per the proposal's Static Fields Model.
+
+#### Scenario: Crypto instrument attributes stored
+- **WHEN** a crypto instrument is ingested
+- **THEN** a corresponding row is inserted or updated in `instrument_crypto` with `blockchain_network`, `consensus_mechanism`, `total_supply`, `max_supply`, `circulating_supply`, `decimals`, `whitepaper_url`, `github_url`
+
+#### Scenario: Equity instrument attributes stored
+- **WHEN** an equity instrument is ingested
+- **THEN** a corresponding row is inserted or updated in `instrument_equity` with `isin`, `cusip`, `figi`, `composite_figi`, `mic_code`, `sic_code`, `country_of_incorporation`, `shares_outstanding`, `float_shares`
+
+#### Scenario: Missing optional fields allowed
+- **WHEN** a provider does not supply an optional attribute (e.g. `whitepaper_url`)
+- **THEN** the field is stored as `NULL`; the record is still accepted
+
+---
+
+### Requirement: Identifier cross-reference
+The system SHALL maintain an `instrument_identifiers` table storing all known external identifiers for each instrument. Each row has: `instrument_id` (FK), `id_type` (`isin`, `cusip`, `figi`, `composite_figi`, `mic_code`, `coingecko_id`, `cmc_id`, `coincodex_id`, `contract_address`, `ticker_exchange`), `id_value`, and `chain` (for `contract_address` only).
+
+#### Scenario: Multiple identifier types stored per instrument
+- **WHEN** an instrument is enriched from multiple sources (e.g. EODHD provides ISIN, OpenFIGI provides FIGI)
+- **THEN** both identifier rows are present in `instrument_identifiers` under the same `instrument_id`
+
+#### Scenario: Contract address stored with chain
+- **WHEN** a crypto token has a contract address on a specific blockchain
+- **THEN** a row is stored with `id_type = 'contract_address'`, `id_value` = the address, and `chain` = the blockchain name (e.g. `ethereum`)
+
+#### Scenario: Duplicate identifier rejected
+- **WHEN** the same `(instrument_id, id_type, id_value)` triple is inserted twice
+- **THEN** the second insert is silently ignored (upsert / `INSERT OR IGNORE`)
+
+---
+
+### Requirement: Symbol resolution
+The system SHALL resolve a caller-supplied symbol string to a canonical `instrument_id` using a defined priority order: (1) exact `instrument_id`, (2) `ticker_exchange` identifier match, (3) loose `ticker` match scoped to a given `asset_class`.
+
+#### Scenario: Resolution by instrument_id
+- **WHEN** a caller provides a valid UUID that matches an `instrument_id`
+- **THEN** that `instrument_id` is returned directly without further lookup
+
+#### Scenario: Resolution by ticker and exchange
+- **WHEN** a caller provides a symbol in `{TICKER}.{MIC}` format (e.g. `AAPL.XNAS`)
+- **THEN** the system looks up `id_type = 'ticker_exchange'` in `instrument_identifiers` and returns the matching `instrument_id`
+
+#### Scenario: Ambiguous ticker raises error
+- **WHEN** a caller provides a bare ticker (e.g. `BTC`) without `asset_class` qualifier and multiple instruments match
+- **THEN** the system returns a 400-level error listing the ambiguous matches
+
+#### Scenario: Unknown symbol raises error
+- **WHEN** a caller provides a symbol that matches no instrument by any resolution method
+- **THEN** the system returns a 404-level error

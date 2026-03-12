@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package market_data.v1;
+
+option py_generic_services = false;
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum AssetClass {
+  ASSET_CLASS_UNSPECIFIED = 0;
+  ASSET_CLASS_CRYPTO      = 1;
+  ASSET_CLASS_EQUITY      = 2;
+  ASSET_CLASS_ETF         = 3;
+  ASSET_CLASS_FX          = 4;
+  ASSET_CLASS_COMMODITY   = 5;
+  ASSET_CLASS_INDEX       = 6;
+  ASSET_CLASS_FUTURE      = 7;
+}
+
+enum Interval {
+  INTERVAL_UNSPECIFIED = 0;
+  INTERVAL_1M          = 1;
+  INTERVAL_5M          = 2;
+  INTERVAL_1H          = 3;
+  INTERVAL_1D          = 4;
+  INTERVAL_1W          = 5;
+  INTERVAL_1MO         = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Instrument messages
+// ---------------------------------------------------------------------------
+
+message Instrument {
+  string      instrument_id  = 1;
+  string      ticker         = 2;
+  string      full_name      = 3;
+  string      description    = 4;
+  AssetClass  asset_class    = 5;
+  string      exchange       = 6;
+  string      sector         = 7;
+  string      industry       = 8;
+  string      quote_currency = 9;
+  string      launch_date    = 10; // ISO 8601 date string
+  bool        is_active      = 11;
+  string      logo_url       = 12;
+  string      website_url    = 13;
+}
+
+message Identifier {
+  string instrument_id = 1;
+  string id_type       = 2;
+  string id_value      = 3;
+  string chain         = 4;
+}
+
+// ---------------------------------------------------------------------------
+// OHLCV messages
+// ---------------------------------------------------------------------------
+
+message OHLCVBar {
+  string   instrument_id = 1;
+  Interval interval      = 2;
+  string   ts            = 3; // ISO 8601 timestamp UTC
+  double   open          = 4;
+  double   high          = 5;
+  double   low           = 6;
+  double   close         = 7;
+  double   volume        = 8;
+  double   vwap          = 9;
+  int32    trade_count   = 10;
+  double   market_cap    = 11;
+  string   source        = 12;
+}
+
+// ---------------------------------------------------------------------------
+// Fundamentals messages
+// ---------------------------------------------------------------------------
+
+message CryptoFundamentals {
+  string instrument_id       = 1;
+  string blockchain_network  = 2;
+  string consensus_mechanism = 3;
+  double total_supply        = 4;
+  double max_supply          = 5;
+  double circulating_supply  = 6;
+  int32  decimals            = 7;
+  string whitepaper_url      = 8;
+  string github_url          = 9;
+}
+
+message EquityFundamentals {
+  string instrument_id          = 1;
+  string isin                   = 2;
+  string cusip                  = 3;
+  string figi                   = 4;
+  string composite_figi         = 5;
+  string mic_code               = 6;
+  string sic_code               = 7;
+  string country_of_incorporation = 8;
+  int64  shares_outstanding     = 9;
+  int64  float_shares           = 10;
+}
+
+message ETFFundamentals {
+  string instrument_id  = 1;
+  string tracking_index = 2;
+  double expense_ratio  = 3;
+  double aum            = 4;
+  string fund_type      = 5;
+}
+
+message FundamentalsResponse {
+  string instrument_id = 1;
+  AssetClass asset_class = 2;
+  oneof data {
+    CryptoFundamentals crypto  = 3;
+    EquityFundamentals equity  = 4;
+    ETFFundamentals    etf     = 5;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request / Response messages
+// ---------------------------------------------------------------------------
+
+message ListInstrumentsRequest {
+  AssetClass asset_class = 1;
+  bool       is_active   = 2;
+  string     q           = 3; // search query
+  int32      page        = 4;
+  int32      page_size   = 5;
+}
+
+message ListInstrumentsResponse {
+  repeated Instrument items     = 1;
+  int32               total     = 2;
+  int32               page      = 3;
+  int32               page_size = 4;
+}
+
+message GetInstrumentRequest {
+  string symbol      = 1;
+  AssetClass asset_class = 2; // optional qualifier for disambiguation
+}
+
+message GetOHLCVRequest {
+  string   symbol     = 1;
+  Interval interval   = 2;
+  string   since      = 3; // ISO 8601
+  string   until      = 4; // ISO 8601
+  AssetClass asset_class = 5;
+}
+
+message GetFundamentalsRequest {
+  string symbol      = 1;
+  AssetClass asset_class = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+service MarketDataService {
+  // Instrument registry
+  rpc ListInstruments   (ListInstrumentsRequest)  returns (ListInstrumentsResponse);
+  rpc GetInstrument     (GetInstrumentRequest)     returns (Instrument);
+
+  // Time-series (server-streaming)
+  rpc GetOHLCV          (GetOHLCVRequest)          returns (stream OHLCVBar);
+
+  // Fundamentals
+  rpc GetFundamentals   (GetFundamentalsRequest)   returns (FundamentalsResponse);
+}
