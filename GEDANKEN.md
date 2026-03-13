@@ -7,7 +7,7 @@
 
 # Initialisierung der Datenbank
 
-[ ] /clear # Kontext leeren
+[x] /clear # Kontext leeren
 
 initialize the database specified in the project. Store it on the correct place defined in .env file. write a documentation for the schema.
 
@@ -17,7 +17,7 @@ initialize the database specified in the project. Store it on the correct place 
 
 ## Workflow
 
-[ ] /ospx-propose add-import-script-for-static-data-from-coinmarketcap
+[x] /ospx-propose add-import-script-for-static-data-from-coinmarketcap
 
 ## Description
 
@@ -37,12 +37,12 @@ write a documentation for this importer
 ## Definition of Done
 
 Alle Workflow Schritte durchlaufen:
-[ ] /ospx-apply
-[ ] /ospx-archive
+[x] /ospx-apply
+[ ] /ospx-archive add-import-script-for-static-data-from-coinmarketcap
 
 [ ] git commit durchgeführt
 
-## Datenbankabfragen
+# Datenbankabfragen
 
 SELECT 'cmc_categories'      AS tbl, count(*) FROM cmc_categories      UNION ALL
 SELECT 'cmc_category_coins',          count(*) FROM cmc_category_coins  UNION ALL
