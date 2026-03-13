@@ -1,28 +1,34 @@
 # management-console-5
 
-[ ] look for gaps in the ohlcv data. fill them with other data sources in order of priority
+## Step 0: Specifaction of the feature
 
+[ ] On the Action bar add a drop down list with the data source depending on the interval chosen in #DDL_OHLCV_PERIOD. List only providers that have the data. Preselect the provider with the highest priority for the interval
+[ ] update the logic behind the button #BTN_UPDATE_FUNDAMENTALS accordingly
+[ ] update the table under #ohlcv-matrix-section
+[ ] update all other necessary things i have forgotten and update this list here.
 
 ## Step 1
 [ ] /clear # clears the context window
-[ ] /ospx-propose management-console-4
+[ ] /ospx-propose management-console-5
 [ ] Review durchgeführt
 
 ### Rückfragen KI (Claude Sonnet 4.6)
 [ ] $rueckfragen von ki$
 
 ### Review
-[ ] Review durchgeführt.
+[ ] Review Proposal durchgeführt.
 [ ] Alle Aspekte berücksichtigt
 
 ## Step 2
 [ ] /ospx-apply
 
-## Step 3 Nacharbeiten
-[ ] 
+## Step 3 archive
+[ ] /ospx-archive management-console-5
 
-## Step 4 archive
-[ ] /ospx-archive management-console-4
+## Step 4 Nacharbeiten
+[ ] Review aller Tasks aus Step 0
+- [ ] xxx
+[ ] git commit mit passendem Kommentar # manuell
 
 ## Step 5 Definition of Done
 

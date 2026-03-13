@@ -1,12 +1,12 @@
 # management-console-4
 
-[ ] on startup automatically select Bitcoin in the instrument list
+[x] on startup automatically select Bitcoin in the instrument list
 
-[ ] when clicking the button #BTN_UPDATE_OHLCV update the ohlcv data as follows.
-- [ ] look for the best fit for the ohlcv data. note the value of the dropdown list #DDL_OHLCV_PERIOD.
-- [ ] then look at the cache folder for the chosen data platform for available data. build a mechanism to edit these folders, e.g. for the 1 hour data from eodhd this is /appdata/eodhd/intraday_historical_data/1-hour where /appdata holds all cached files from all data providers followed by the shortname of the data provider (eodhd) followed by the class of data (intraday_historical_data) and the interval (1-hour).
-- [ ] if there is data available import them in the associated tables and do a migration to the main tables.
-- [ ] if the folder does not exist show an error with the expected folder and cancel the update
+[x] when clicking the button #BTN_UPDATE_OHLCV update the ohlcv data as follows.
+- [x] look for the best fit for the ohlcv data. note the value of the dropdown list #DDL_OHLCV_PERIOD.
+- [x] then look at the cache folder for the chosen data platform for available data. build a mechanism to edit these folders, e.g. for the 1 hour data from eodhd this is /appdata/eodhd/intraday_historical_data/1-hour where /appdata holds all cached files from all data providers followed by the shortname of the data provider (eodhd) followed by the class of data (intraday_historical_data) and the interval (1-hour).
+- [x] if there is data available import them in the associated tables and do a migration to the main tables.
+- [x] if the folder does not exist show an error with the expected folder and cancel the update
 
 
 ## Step 1
@@ -27,8 +27,8 @@
 [X] /ospx-archive management-console-4
 
 ## Step 4 Nacharbeiten
-[ ] Review aller Tasks aus Step 0:
-- [ ] it takes several minutes to import the ohlcv data (1h) for btc into the db. is it possible to accelerate this? 
+[x] Review aller Tasks aus Step 0:
+- [x] it takes several minutes to import the ohlcv data (1h) for btc into the db. is it possible to accelerate this? 
 - [x] on the #ohlcv-range-section show also the hour not only the date
 - [x] the filter of the instruments list should always be visible. it disappears when scrolling.
 - [x] Bug:  there is a bug when updating ohlcv data (1h inteval)
@@ -48,7 +48,7 @@
 
 [x] Alle Workflow Schritte durchlaufen:
 [x] Review durchgeführt
-[ ] Dokumentation aktualisiert 
+[x] Dokumentation aktualisiert 
 [ ] FAQ ergänzt
 
 
