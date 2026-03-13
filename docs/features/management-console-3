@@ -1,0 +1,62 @@
+# Management Console Update 3
+
+add some fundamental data to PANE_INSTRUMENT_LIST:
+
+[ ] add the launch date
+[ ] for the ohlcv data show the first and the last available  timestamp. do this for all time frames:
+- [ ] 1m
+- [ ] 5m
+- [ ] 1h
+- [ ] 1d
+- [ ] 1w (calculated from 1d data)
+- [ ] 4w (calculated from 1w or 1d data)
+- [ ] 1mth (calculated from 1d data)
+- [ ] 1y (calculated from 1d data)
+- [ ] 1ytd (calculated from 1d data)
+[ ] add a table for the ohlcv data available named "ohlcv_data_available" with the following columns:
+- [ ] data_source_id # foreign key to table "data_source"
+- [ ] 1m boolean default false
+- [ ] 5m boolean default false
+- [ ] 1h boolean default false
+- [ ] 1d boolean default false
+
+[ ] add entry to the data_source table for eodhd (https://eodhd.com)
+[ ] add entries to this table for eodhd.com
+- [ ] 1m boolean true
+- [ ] 5m boolean true
+- [ ] 1h boolean true
+- [ ] 1d boolean true
+add entry to this table for cmc:
+- [ ] 1d boolean true
+
+## Step 1
+[ ] /ospx-propose management-console-update3
+[ ] Review durchgeführt. Alle Aspekte berücksichtigt?
+
+### Rückfragen KI (Claude Sonnet 4.6)
+[ ] ...
+
+### Review
+[ ] Review durchgeführt.
+[ ] Alle Aspekte berücksichtigt
+
+## Step 2
+[ ] /ospx-apply
+
+## Step 3 Nacharbeiten
+[ ] 
+[ ] 
+
+
+## Step 4 Definition of Done
+## Definition of Done
+
+Alle Workflow Schritte durchlaufen:
+[ ] /ospx-apply
+[ ] /ospx-archive management-console
+[ ] Review durchgeführt
+[ ] git commit mit passendem Kommentar # manuell
+
+
+
+

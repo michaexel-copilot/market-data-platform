@@ -46,14 +46,15 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     /* ── PANE_INSTRUMENT_LIST ── */
     #PANE_INSTRUMENT_LIST {
       width: 260px; min-width: 200px; background: #fff;
-      border-right: 1px solid #e0e0e0; overflow-y: auto; display: flex; flex-direction: column;
+      border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; overflow: hidden;
     }
+    #PANE_INSTRUMENT_LIST .list-top { flex-shrink: 0; }
     #PANE_INSTRUMENT_LIST .list-header {
       padding: 10px 14px; font-size: 0.75rem; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.08em; color: #888;
-      border-bottom: 1px solid #eee; position: sticky; top: 0; background: #fff;
+      border-bottom: 1px solid #eee;
     }
-    #PANE_INSTRUMENT_LIST ul { list-style: none; flex: 1; }
+    #PANE_INSTRUMENT_LIST ul { list-style: none; flex: 1; overflow-y: auto; margin: 0; padding: 0; }
     #PANE_INSTRUMENT_LIST li.ITEM_INSTRUMENT {
       padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
     }
@@ -101,6 +102,17 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #PANE_FUNDAMENTALS table { border-collapse: collapse; width: 100%; max-width: 600px; }
     #PANE_FUNDAMENTALS td { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 0.88rem; }
     #PANE_FUNDAMENTALS td:first-child { font-weight: 600; color: #555; width: 40%; }
+    #PANE_FUNDAMENTALS h3 { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 24px 0 8px; }
+    #PANE_FUNDAMENTALS .ohlcv-range-table th { padding: 6px 12px; font-size: 0.8rem; font-weight: 700; text-align: left; background: #f5f5f5; border-bottom: 2px solid #e0e0e0; }
+    #PANE_FUNDAMENTALS .ohlcv-range-table td { width: auto; font-weight: normal; color: inherit; font-family: monospace; font-size: 0.83rem; }
+    #PANE_FUNDAMENTALS .ohlcv-range-table td:first-child { font-weight: 700; color: #333; width: 60px; font-family: inherit; }
+    #PANE_FUNDAMENTALS .avail-table th { padding: 6px 12px; font-size: 0.8rem; font-weight: 700; text-align: center; background: #f5f5f5; border-bottom: 2px solid #e0e0e0; }
+    #PANE_FUNDAMENTALS .avail-table th:first-child { text-align: left; }
+    #PANE_FUNDAMENTALS .avail-table td { text-align: center; width: auto; font-weight: normal; color: inherit; }
+    #PANE_FUNDAMENTALS .avail-table td:first-child { text-align: left; font-weight: 700; font-family: monospace; }
+    #PANE_FUNDAMENTALS .avail-yes { color: #1e7e34; }
+    #PANE_FUNDAMENTALS .avail-no  { color: #bbb; }
+    #PANE_FUNDAMENTALS .import-ok { color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 4px; padding: 8px 12px; font-size: 0.88rem; margin-bottom: 12px; }
   </style>
 </head>
 <body>
@@ -122,8 +134,10 @@ _CONSOLE_HTML = """<!DOCTYPE html>
 <div id="MAIN_LAYOUT">
 
   <div id="PANE_INSTRUMENT_LIST">
-    <div class="list-header">Instruments</div>
-    <input id="INP_INSTRUMENT_FILTER" type="text" placeholder="Filter instruments…" autocomplete="off">
+    <div class="list-top">
+      <div class="list-header">Instruments</div>
+      <input id="INP_INSTRUMENT_FILTER" type="text" placeholder="Filter instruments…" autocomplete="off">
+    </div>
     <ul id="INSTRUMENT_LIST_UL"></ul>
   </div>
 
@@ -200,6 +214,12 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       }
       allLoadedInstruments = allItems;
       renderInstrumentList(allLoadedInstruments);
+      // Auto-select BTC on first load
+      const btcInst = allLoadedInstruments.find(i => (i.ticker || '').toUpperCase() === 'BTC');
+      if (btcInst) {
+        const btcLi = listUl.querySelector(`li[data-id="${CSS.escape(btcInst.instrument_id)}"]`);
+        if (btcLi) btcLi.click();
+      }
     } catch (e) {
       listUl.innerHTML = `<li class="list-empty">Error loading instruments</li>`;
     }
@@ -246,18 +266,64 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   async function loadFundamentals(instrumentId, ticker, fullName) {
     fundamentalsPane.innerHTML = '<p class="placeholder">Loading…</p>';
     try {
-      const res = await fetch(`/v1/instruments/${instrumentId}/fundamentals`);
-      if (!res.ok) {
-        fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals (HTTP ${res.status})</p>`;
+      const [fundRes, availRes, matrixRes] = await Promise.all([
+        fetch(`/v1/instruments/${instrumentId}/fundamentals`),
+        fetch(`/v1/instruments/${instrumentId}/ohlcv-availability`),
+        fetch(`/v1/instruments/${instrumentId}/ohlcv-data-available`),
+      ]);
+      if (!fundRes.ok) {
+        fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals (HTTP ${fundRes.status})</p>`;
         return;
       }
-      const data = await res.json();
+      const data = await fundRes.json();
       const title = ticker ? `${escHtml(ticker)}${fullName ? ' — ' + escHtml(fullName) : ''}` : escHtml(instrumentId);
       const rows = Object.entries(data)
-        .filter(([, v]) => v !== null && v !== undefined)
+        .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
         .map(([k, v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(String(v))}</td></tr>`)
         .join('');
-      fundamentalsPane.innerHTML = `<h2>${title}</h2><table>${rows}</table>`;
+
+      // OHLCV time range section
+      let ohlcvRangeHtml = '<p style="color:#999;font-size:0.85rem">No OHLCV data available.</p>';
+      if (availRes.ok) {
+        const availData = await availRes.json();
+        const ivEntries = Object.entries(availData.intervals || {});
+        if (ivEntries.length > 0) {
+          const ivOrder = ['1m','5m','1h','1d','1w','4w','1mth','1y','1ytd'];
+          ivEntries.sort(([a], [b]) => {
+            const ai = ivOrder.indexOf(a), bi = ivOrder.indexOf(b);
+            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+          });
+          const fmtTs = t => t ? t.slice(0,16).replace('T',' ') : '—';
+          const ivRows = ivEntries.map(([iv, {first, last}]) =>
+            `<tr><td>${escHtml(iv)}</td><td>${escHtml(fmtTs(first))}</td><td>${escHtml(fmtTs(last))}</td></tr>`
+          ).join('');
+          ohlcvRangeHtml = `<table class="ohlcv-range-table"><thead><tr><th>Interval</th><th>First</th><th>Last</th></tr></thead><tbody>${ivRows}</tbody></table>`;
+        }
+      }
+
+      // OHLCV data available matrix section
+      let ohlcvMatrixHtml = '';
+      if (matrixRes.ok) {
+        const matrixData = await matrixRes.json();
+        const sources = Object.entries(matrixData.sources || {});
+        if (sources.length > 0) {
+          const ivCols = ['has_1m','has_5m','has_1h','has_1d'];
+          const ivLabels = ['1m','5m','1h','1d'];
+          const headerCols = ivLabels.map(l => `<th>${escHtml(l)}</th>`).join('');
+          const matrixRows = sources.map(([src, flags]) => {
+            const cells = ivCols.map(col =>
+              `<td class="${flags[col] ? 'avail-yes' : 'avail-no'}">${flags[col] ? '✓' : '—'}</td>`
+            ).join('');
+            return `<tr><td>${escHtml(src)}</td>${cells}</tr>`;
+          }).join('');
+          ohlcvMatrixHtml = `<h3>OHLCV Data Available</h3><table class="avail-table"><thead><tr><th>Source</th>${headerCols}</tr></thead><tbody>${matrixRows}</tbody></table>`;
+        }
+      }
+
+      fundamentalsPane.innerHTML =
+        `<h2>${title}</h2><table>${rows}</table>` +
+        `<div class="ohlcv-range-section"><h3>OHLCV Time Range</h3>${ohlcvRangeHtml}</div>` +
+        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '');
     } catch (e) {
       fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals: ${escHtml(e.message)}</p>`;
     }
@@ -275,10 +341,89 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     console.log(`[stub] BTN_UPDATE_FUNDAMENTALS clicked for ${selectedInstrumentId}`);
   });
 
-  // ── BTN_UPDATE_OHLCV stub ──
-  btnOhlcv.addEventListener('click', () => {
-    console.log(`[stub] BTN_UPDATE_OHLCV clicked for ${selectedInstrumentId}, period=${ddlPeriod.value}`);
+  // ── BTN_UPDATE_OHLCV — import from local cache ──
+  btnOhlcv.addEventListener('click', async () => {
+    if (!selectedInstrumentId) return;
+    const interval = ddlPeriod.value;
+    btnOhlcv.disabled = true;
+    btnOhlcv.textContent = 'Importing\u2026';
+    try {
+      const res = await fetch('/v1/admin/import-ohlcv-cache', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({instrument_id: selectedInstrumentId, interval}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data.detail) ? escHtml(String(data.detail)) : `HTTP ${res.status}`;
+        _prependOhlcvMessage(`<p class="error">OHLCV import failed: ${msg}</p>`);
+        return;
+      }
+      if (data.status === 'folder_not_found') {
+        _prependOhlcvMessage(`<p class="error">Cache folder not found. Expected: ${escHtml(data.expected_path || '')}</p>`);
+        return;
+      }
+      // Success
+      _prependOhlcvMessage(`<p class="import-ok">Imported ${data.rows_imported} rows from cache.</p>`);
+      // Refresh OHLCV sections
+      _refreshOhlcvSections(selectedInstrumentId);
+    } catch (e) {
+      _prependOhlcvMessage(`<p class="error">OHLCV import failed: ${escHtml(e.message)}</p>`);
+    } finally {
+      btnOhlcv.disabled = false;
+      btnOhlcv.textContent = 'Update OHLCV Data';
+    }
   });
+
+  // Prepend a status message above existing fundamentals pane content
+  function _prependOhlcvMessage(html) {
+    const msg = document.createElement('div');
+    msg.innerHTML = html;
+    fundamentalsPane.insertBefore(msg.firstChild, fundamentalsPane.firstChild);
+  }
+
+  // Re-fetch and re-render only the OHLCV sections (range + matrix)
+  async function _refreshOhlcvSections(instrumentId) {
+    try {
+      const [availRes, matrixRes] = await Promise.all([
+        fetch(`/v1/instruments/${instrumentId}/ohlcv-availability`),
+        fetch(`/v1/instruments/${instrumentId}/ohlcv-data-available`),
+      ]);
+      // Replace OHLCV Time Range section
+      const rangeEl = fundamentalsPane.querySelector('.ohlcv-range-section');
+      const matrixEl = fundamentalsPane.querySelector('.ohlcv-matrix-section');
+      if (rangeEl && availRes.ok) {
+        const availData = await availRes.json();
+        const ivEntries = Object.entries(availData.intervals || {});
+        if (ivEntries.length > 0) {
+          const ivOrder = ['1m','5m','1h','1d','1w','4w','1mth','1y','1ytd'];
+          ivEntries.sort(([a],[b]) => {
+            const ai = ivOrder.indexOf(a), bi = ivOrder.indexOf(b);
+            return (ai===-1?999:ai)-(bi===-1?999:bi);
+          });
+          const fmtTs = t => t ? t.slice(0,16).replace('T',' ') : '—';
+          const ivRows = ivEntries.map(([iv,{first,last}]) =>
+            `<tr><td>${escHtml(iv)}</td><td>${escHtml(fmtTs(first))}</td><td>${escHtml(fmtTs(last))}</td></tr>`
+          ).join('');
+          rangeEl.innerHTML = `<h3>OHLCV Time Range</h3><table class="ohlcv-range-table"><thead><tr><th>Interval</th><th>First</th><th>Last</th></tr></thead><tbody>${ivRows}</tbody></table>`;
+        }
+      }
+      if (matrixEl && matrixRes.ok) {
+        const matrixData = await matrixRes.json();
+        const sources = Object.entries(matrixData.sources || {});
+        if (sources.length > 0) {
+          const ivCols = ['has_1m','has_5m','has_1h','has_1d'];
+          const ivLabels = ['1m','5m','1h','1d'];
+          const headerCols = ivLabels.map(l=>`<th>${escHtml(l)}</th>`).join('');
+          const matrixRows = sources.map(([src,flags]) => {
+            const cells = ivCols.map(col=>`<td class="${flags[col]?'avail-yes':'avail-no'}">${flags[col]?'\u2713':'\u2014'}</td>`).join('');
+            return `<tr><td>${escHtml(src)}</td>${cells}</tr>`;
+          }).join('');
+          matrixEl.innerHTML = `<h3>OHLCV Data Available</h3><table class="avail-table"><thead><tr><th>Source</th>${headerCols}</tr></thead><tbody>${matrixRows}</tbody></table>`;
+        }
+      }
+    } catch (_) { /* silent */ }
+  }
 
   // ── BTN_MIGRATE_FUNDAMENTALS ──
   btnMigrate.addEventListener('click', async () => {

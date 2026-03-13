@@ -117,3 +117,142 @@ async def get_fundamentals(symbol: str) -> dict:
             cols = [d[0] for d in desc]
             result[asset_class] = dict(zip(cols, row))
     return result
+
+
+@router.get("/{symbol}/ohlcv-availability")
+async def get_ohlcv_availability(symbol: str) -> dict:
+    """Return first/last timestamp per OHLCV interval for the given instrument.
+
+    Native intervals (1m, 5m, 1h, 1d) are read from the ``ohlcv`` table.
+    Derived intervals (1w, 4w, 1mth, 1y, 1ytd) are computed from views or
+    daily data.  Intervals with no rows are omitted from the response.
+    """
+    from market_data.db.resolver import resolve_symbol
+
+    instrument_id = resolve_symbol(symbol)
+    conn = get_connection()
+
+    # Verify instrument exists
+    if not conn.execute(
+        "SELECT 1 FROM instruments WHERE instrument_id = ?", [instrument_id]
+    ).fetchone():
+        raise SymbolNotFoundError(symbol)
+
+    intervals: dict[str, dict] = {}
+
+    # ── Native intervals from ohlcv ──────────────────────────────────────
+    rows = conn.execute(
+        """
+        SELECT interval,
+               MIN(ts) AS first_ts,
+               MAX(ts) AS last_ts
+        FROM ohlcv
+        WHERE instrument_id = ?
+        GROUP BY interval
+        """,
+        [instrument_id],
+    ).fetchall()
+    for iv, first_ts, last_ts in rows:
+        intervals[iv] = {"first": first_ts.isoformat() if first_ts else None,
+                         "last":  last_ts.isoformat()  if last_ts  else None}
+
+    # ── 1w — ohlcv_weekly view ───────────────────────────────────────────
+    row = conn.execute(
+        "SELECT MIN(ts), MAX(ts) FROM ohlcv_weekly WHERE instrument_id = ?",
+        [instrument_id],
+    ).fetchone()
+    if row and row[0] is not None:
+        intervals["1w"] = {"first": row[0].isoformat(), "last": row[1].isoformat()}
+
+    # ── 4w — approximate: 4-week buckets aligned to epoch Monday ────────
+    row = conn.execute(
+        """
+        SELECT MIN(week_bucket), MAX(week_bucket)
+        FROM (
+            SELECT DATE_TRUNC('week', ts) -
+                   ((EXTRACT(DOW FROM DATE_TRUNC('week', ts))::INTEGER + 6) % 7
+                    % 4) * INTERVAL '7 days' AS week_bucket
+            FROM ohlcv
+            WHERE instrument_id = ? AND interval = '1d'
+        ) sub
+        WHERE week_bucket IS NOT NULL
+        """,
+        [instrument_id],
+    ).fetchone()
+    if row and row[0] is not None:
+        intervals["4w"] = {"first": str(row[0])[:10], "last": str(row[1])[:10]}
+
+    # ── 1mth — ohlcv_monthly view ────────────────────────────────────────
+    row = conn.execute(
+        "SELECT MIN(ts), MAX(ts) FROM ohlcv_monthly WHERE instrument_id = ?",
+        [instrument_id],
+    ).fetchone()
+    if row and row[0] is not None:
+        intervals["1mth"] = {"first": row[0].isoformat(), "last": row[1].isoformat()}
+
+    # ── 1y — group daily rows by calendar year ───────────────────────────
+    row = conn.execute(
+        """
+        SELECT MIN(DATE_TRUNC('year', ts)), MAX(DATE_TRUNC('year', ts))
+        FROM ohlcv
+        WHERE instrument_id = ? AND interval = '1d'
+        """,
+        [instrument_id],
+    ).fetchone()
+    if row and row[0] is not None:
+        intervals["1y"] = {"first": str(row[0])[:10], "last": str(row[1])[:10]}
+
+    # ── 1ytd — daily rows since start of current year ───────────────────
+    row = conn.execute(
+        """
+        SELECT MIN(ts), MAX(ts)
+        FROM ohlcv
+        WHERE instrument_id = ? AND interval = '1d'
+          AND ts >= DATE_TRUNC('year', now())
+        """,
+        [instrument_id],
+    ).fetchone()
+    if row and row[0] is not None:
+        intervals["1ytd"] = {"first": row[0].isoformat(), "last": row[1].isoformat()}
+
+    return {"instrument_id": instrument_id, "intervals": intervals}
+
+
+@router.get("/{symbol}/ohlcv-data-available")
+async def get_ohlcv_data_available(symbol: str) -> dict:
+    """Return the OHLCV data availability matrix for the given instrument.
+
+    Returns a dict keyed by data source ``short_name``, each containing the
+    four boolean interval flags ``has_1m``, ``has_5m``, ``has_1h``, ``has_1d``.
+    """
+    from market_data.db.resolver import resolve_symbol
+
+    instrument_id = resolve_symbol(symbol)
+    conn = get_connection()
+
+    if not conn.execute(
+        "SELECT 1 FROM instruments WHERE instrument_id = ?", [instrument_id]
+    ).fetchone():
+        raise SymbolNotFoundError(symbol)
+
+    rows = conn.execute(
+        """
+        SELECT ds.short_name, oda.has_1m, oda.has_5m, oda.has_1h, oda.has_1d
+        FROM ohlcv_data_available oda
+        JOIN data_source ds ON ds.data_source_id = oda.data_source_id
+        WHERE oda.instrument_id = ?
+        ORDER BY ds.retrieval_priority NULLS LAST, ds.short_name
+        """,
+        [instrument_id],
+    ).fetchall()
+
+    sources: dict[str, dict] = {}
+    for short_name, has_1m, has_5m, has_1h, has_1d in rows:
+        sources[short_name] = {
+            "has_1m": bool(has_1m),
+            "has_5m": bool(has_5m),
+            "has_1h": bool(has_1h),
+            "has_1d": bool(has_1d),
+        }
+
+    return {"instrument_id": instrument_id, "sources": sources}
