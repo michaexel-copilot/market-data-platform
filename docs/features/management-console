@@ -40,9 +40,10 @@
 
 Alle Workflow Schritte durchlaufen:
 [x] /ospx-apply
-[ ] /ospx-archive management-console
+[x] /ospx-archive management-console
+[ ] Review durchgeführt
+[x] git commit mit passendem Kommentar # manuell
 
-[ ] git commit durchgeführt
 
 
 
