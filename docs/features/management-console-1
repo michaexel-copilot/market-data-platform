@@ -1,0 +1,50 @@
+# Management Console Update 1
+
+[ ] as sibling of the segmented button list (#id=SEG_ASSET_CLASS) add an Action Button List and align it to the right.
+
+[ ] add a button to this list with title "Migrate Fundamental data" Update the schema for this. Use a new table "attribute_source_map" for this. for each attribute create a row with the following attributes:
+- [ ] <attribute_name> which holds the name of the attribute e.g. the ticker, launch-date etc. 
+- [ ] the source for this attribute e.g. CoinMarketCap. this will be update during the migration process.
+- [ ] the last update of this attribute
+
+[ ] add a table "data_source" with the following attributes
+- [ ] Data Source e.g. CoinMarketCap
+- [ ] short name e.g. cmc for CoinMarketCap
+- [ ] the base url to the page e.g. https://coinmarketcap.com 
+- [ ] API page if available
+- [ ] the priority for data retrieval (0 = highest priority. add a value for the case that the source will not be used at all)
+
+[ ] when clicking on the button "Migrate Fundamental data" migrate the fundamental data to the main table for this. Also migrate the tickers. 
+Please note that the name of the tickers are ambiguous with regard to the data sources like coinmarektcap, hyperliquid etc. This requires another mapping table. 
+Please note the mapping table for the priority of the data source. 
+
+Then update the list of tickers 
+
+[ ] When clicking on a ticker show the fundamental data in the main area of the page.
+
+## Step 1
+[x] /ospx-propose management-console-update1
+
+### Rückfragen KI (Claude Sonnet 4.6)
+
+- keine
+
+## Step 2
+[x] /ospx-apply
+
+## Step 3 Nacharbeiten
+[x] Dokumentation. Start des Servers
+[x] Dokumentation aller bisher umgesetzten Features
+
+## Step 4 Definition of Done
+## Definition of Done
+
+Alle Workflow Schritte durchlaufen:
+[x] /ospx-apply
+[x] /ospx-archive management-console
+[ ] Review durchgeführt
+[x] git commit mit passendem Kommentar # manuell
+
+
+
+

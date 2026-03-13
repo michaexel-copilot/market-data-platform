@@ -20,7 +20,8 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #TOP_BAR { background: #1a1a2e; color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
     #TOP_BAR h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.05em; }
 
-    /* ── SEG_ASSET_CLASS ── */
+    /* ── SEG_ASSET_CLASS + ACT_BTN_LIST row ── */
+    #TOP_BAR { justify-content: space-between; }
     #SEG_ASSET_CLASS { display: flex; gap: 4px; }
     #SEG_ASSET_CLASS button {
       padding: 6px 14px; border: 1px solid #444; border-radius: 4px;
@@ -29,6 +30,15 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #SEG_ASSET_CLASS button.active {
       background: #e94560; border-color: #e94560; color: #fff; font-weight: 600;
     }
+
+    /* ── ACT_BTN_LIST ── */
+    #ACT_BTN_LIST { display: flex; gap: 8px; align-items: center; }
+    #BTN_MIGRATE_FUNDAMENTALS {
+      padding: 6px 14px; background: #f39c12; color: #fff;
+      border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    }
+    #BTN_MIGRATE_FUNDAMENTALS:hover { background: #e67e22; }
+    #BTN_MIGRATE_FUNDAMENTALS:disabled { background: #bbb; cursor: not-allowed; }
 
     /* ── Main layout ── */
     #MAIN_LAYOUT { display: flex; flex: 1; overflow: hidden; }
@@ -52,6 +62,12 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #PANE_INSTRUMENT_LIST li.ITEM_INSTRUMENT .ticker { font-weight: 600; font-size: 0.9rem; }
     #PANE_INSTRUMENT_LIST li.ITEM_INSTRUMENT .name { font-size: 0.78rem; color: #666; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #PANE_INSTRUMENT_LIST .list-empty { padding: 20px 14px; color: #999; font-size: 0.85rem; }
+    #INP_INSTRUMENT_FILTER {
+      width: 100%; box-sizing: border-box; padding: 7px 10px;
+      border: none; border-bottom: 1px solid #e0e0e0; font-size: 0.85rem;
+      outline: none; background: #fafafa;
+    }
+    #INP_INSTRUMENT_FILTER:focus { background: #fff; border-bottom-color: #1a73e8; }
 
     /* ── PANE_CONTENT (right side) ── */
     #PANE_CONTENT { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -98,12 +114,16 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     <button data-class="fx">FX</button>
     <button data-class="commodity">Commodity</button>
   </div>
+  <div id="ACT_BTN_LIST">
+    <button id="BTN_MIGRATE_FUNDAMENTALS">Migrate Fundamental Data</button>
+  </div>
 </div>
 
 <div id="MAIN_LAYOUT">
 
   <div id="PANE_INSTRUMENT_LIST">
     <div class="list-header">Instruments</div>
+    <input id="INP_INSTRUMENT_FILTER" type="text" placeholder="Filter instruments…" autocomplete="off">
     <ul id="INSTRUMENT_LIST_UL"></ul>
   </div>
 
@@ -133,12 +153,17 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   let selectedInstrumentId = null;
 
   // ── Element references ──
+  let allLoadedInstruments = [];
+
+  // ── Element references ──
   const segButtons        = document.querySelectorAll('#SEG_ASSET_CLASS button');
   const listUl            = document.getElementById('INSTRUMENT_LIST_UL');
+  const inpFilter         = document.getElementById('INP_INSTRUMENT_FILTER');
   const fundamentalsPane  = document.getElementById('PANE_FUNDAMENTALS');
   const btnFundamentals   = document.getElementById('BTN_UPDATE_FUNDAMENTALS');
   const btnOhlcv          = document.getElementById('BTN_UPDATE_OHLCV');
   const ddlPeriod         = document.getElementById('DDL_OHLCV_PERIOD');
+  const btnMigrate        = document.getElementById('BTN_MIGRATE_FUNDAMENTALS');
 
   // ── Asset-class selector ──
   segButtons.forEach(btn => {
@@ -148,33 +173,65 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       selectedInstrumentId = null;
       setActionsEnabled(false);
       fundamentalsPane.innerHTML = '<p class="placeholder">Select an instrument to view details</p>';
+      inpFilter.value = '';
       loadInstruments(btn.dataset.class);
     });
   });
 
   // ── Load instrument list ──
   async function loadInstruments(assetClass) {
-    listUl.innerHTML = '';
+    listUl.innerHTML = '<li class="list-empty">Loading…</li>';
     try {
-      const res = await fetch(`/v1/instruments?asset_class=${assetClass}&is_active=true&page_size=200`);
-      const data = await res.json();
-      const items = data.items || [];
-      if (items.length === 0) {
+      let allItems = [];
+      let page = 1;
+      while (true) {
+        const res = await fetch(`/v1/instruments?asset_class=${assetClass}&is_active=true&page_size=1000&page=${page}`);
+        const data = await res.json();
+        const items = data.items || [];
+        allItems = allItems.concat(items);
+        if (data.next_page == null) break;
+        page = data.next_page;
+      }
+      listUl.innerHTML = '';
+      if (allItems.length === 0) {
+        allLoadedInstruments = [];
         listUl.innerHTML = '<li class="list-empty">No instruments found</li>';
         return;
       }
-      items.forEach(inst => {
-        const li = document.createElement('li');
-        li.className = 'ITEM_INSTRUMENT';
-        li.dataset.id = inst.instrument_id;
-        li.innerHTML = `<div class="ticker">${escHtml(inst.ticker)}</div><div class="name">${escHtml(inst.full_name)}</div>`;
-        li.addEventListener('click', () => selectInstrument(li, inst));
-        listUl.appendChild(li);
-      });
+      allLoadedInstruments = allItems;
+      renderInstrumentList(allLoadedInstruments);
     } catch (e) {
       listUl.innerHTML = `<li class="list-empty">Error loading instruments</li>`;
     }
   }
+
+  // ── Render filtered instrument list ──
+  function renderInstrumentList(instruments) {
+    listUl.innerHTML = '';
+    if (instruments.length === 0) {
+      listUl.innerHTML = '<li class="list-empty">No instruments found</li>';
+      return;
+    }
+    instruments.forEach(inst => {
+      const li = document.createElement('li');
+      li.className = 'ITEM_INSTRUMENT';
+      li.dataset.id = inst.instrument_id;
+      li.innerHTML = `<div class="ticker">${escHtml(inst.ticker)}</div><div class="name">${escHtml(inst.full_name || '')}</div>`;
+      li.addEventListener('click', () => selectInstrument(li, inst));
+      listUl.appendChild(li);
+    });
+  }
+
+  // ── Filter input handler ──
+  inpFilter.addEventListener('input', () => {
+    const q = inpFilter.value.trim().toLowerCase();
+    const filtered = q
+      ? allLoadedInstruments.filter(i =>
+          (i.ticker || '').toLowerCase().includes(q) ||
+          (i.full_name || '').toLowerCase().includes(q))
+      : allLoadedInstruments;
+    renderInstrumentList(filtered);
+  });
 
   // ── Instrument selection ──
   function selectInstrument(li, inst) {
@@ -182,11 +239,11 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     li.classList.add('selected');
     selectedInstrumentId = inst.instrument_id;
     setActionsEnabled(true);
-    loadFundamentals(inst.instrument_id);
+    loadFundamentals(inst.instrument_id, inst.ticker, inst.full_name);
   }
 
   // ── Load fundamentals ──
-  async function loadFundamentals(instrumentId) {
+  async function loadFundamentals(instrumentId, ticker, fullName) {
     fundamentalsPane.innerHTML = '<p class="placeholder">Loading…</p>';
     try {
       const res = await fetch(`/v1/instruments/${instrumentId}/fundamentals`);
@@ -195,11 +252,12 @@ _CONSOLE_HTML = """<!DOCTYPE html>
         return;
       }
       const data = await res.json();
+      const title = ticker ? `${escHtml(ticker)}${fullName ? ' — ' + escHtml(fullName) : ''}` : escHtml(instrumentId);
       const rows = Object.entries(data)
         .filter(([, v]) => v !== null && v !== undefined)
         .map(([k, v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(String(v))}</td></tr>`)
         .join('');
-      fundamentalsPane.innerHTML = `<h2>${escHtml(instrumentId)}</h2><table>${rows}</table>`;
+      fundamentalsPane.innerHTML = `<h2>${title}</h2><table>${rows}</table>`;
     } catch (e) {
       fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals: ${escHtml(e.message)}</p>`;
     }
@@ -220,6 +278,29 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   // ── BTN_UPDATE_OHLCV stub ──
   btnOhlcv.addEventListener('click', () => {
     console.log(`[stub] BTN_UPDATE_OHLCV clicked for ${selectedInstrumentId}, period=${ddlPeriod.value}`);
+  });
+
+  // ── BTN_MIGRATE_FUNDAMENTALS ──
+  btnMigrate.addEventListener('click', async () => {
+    btnMigrate.disabled = true;
+    btnMigrate.textContent = 'Migrating…';
+    fundamentalsPane.innerHTML = '<p class="placeholder">Running migration…</p>';
+    try {
+      const res = await fetch('/v1/admin/migrate-fundamentals', { method: 'POST' });
+      if (!res.ok) {
+        fundamentalsPane.innerHTML = `<p class="error">Migration failed (HTTP ${res.status})</p>`;
+        return;
+      }
+      const data = await res.json();
+      fundamentalsPane.innerHTML = `<p class="placeholder">Migration complete — ${data.promoted} instrument(s) promoted.</p>`;
+      const activeClass = document.querySelector('#SEG_ASSET_CLASS button.active')?.dataset.class || 'crypto';
+      loadInstruments(activeClass);
+    } catch (e) {
+      fundamentalsPane.innerHTML = `<p class="error">Migration error: ${escHtml(e.message)}</p>`;
+    } finally {
+      btnMigrate.disabled = false;
+      btnMigrate.textContent = 'Migrate Fundamental Data';
+    }
   });
 
   // ── Helpers ──

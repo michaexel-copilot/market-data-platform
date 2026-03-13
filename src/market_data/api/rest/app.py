@@ -10,6 +10,7 @@ from market_data.api.rest.errors import (
     symbol_not_found_handler,
     validation_error_handler,
 )
+from market_data.api.rest.admin import router as admin_router
 from market_data.api.rest.console import router as console_router
 from market_data.api.rest.instruments import router as instruments_router
 from market_data.api.rest.ohlcv import router as ohlcv_router
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     )
 
     # REST routers
+    app.include_router(admin_router)
     app.include_router(console_router)
     app.include_router(instruments_router)
     app.include_router(ohlcv_router)

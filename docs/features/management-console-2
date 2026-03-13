@@ -1,0 +1,30 @@
+# Management Console Update 2
+add a filter to the instrument list. update the visible intruments while typing.
+
+## Step 1
+[x] /ospx-propose management-console-update2
+
+### Rückfragen KI (Claude Sonnet 4.6)
+
+- keine
+
+## Step 2
+[x] /ospx-apply
+
+## Step 3 Nacharbeiten
+[x] now the last ticket that is shown in the list is ADF. Where are the rest?
+[x] the instrument "BTC" is wrongly mapped. I want to see Bitcoin instead of batcat. Are there other obvious  mapping errors?
+
+
+## Step 4 Definition of Done
+## Definition of Done
+
+Alle Workflow Schritte durchlaufen:
+[x] /ospx-apply
+[x] /ospx-archive management-console
+[ ] Review durchgeführt
+[ ] git commit mit passendem Kommentar # manuell
+
+
+
+

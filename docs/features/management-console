@@ -1,16 +1,16 @@
 # Management Console
 
-[ ] add a web gui to manage the market data.
+[x] add a web gui to manage the market data.
 
-[ ] begin with with a segmented button list to choose the asset-class. Use "crypto" as default.
+[x] begin with with a segmented button list to choose the asset-class. Use "crypto" as default.
 
-[ ] on the left pane show a list of all available assets in the chosen class.
+[x] on the left pane show a list of all available assets in the chosen class.
 
 [ ] When clicking on the asset show the fundamtal data in the main area of the page.
 
-[ ] on top of the main area add a Action Button List.
+[x] on top of the main area add a Action Button List.
 
-[ ] add the follwoing buttons:
+[ ] add the following buttons:
 
 [ ] - update fundamental data
 [ ] - update ohlcv data. this button needs a drop down list for the period: 1m, 5m, 1h, 1d,1w,1m,1y
@@ -18,6 +18,8 @@
 [ ] do not implement the logic for the buttons nut name the button so that i can refer to them easily to refine the feature. 
 
 [ ] Write a documentation. Build a list of referenced elements where i can refer to them later for refinement work.
+
+see /work/market-data-platform/docs/management-console.md
 
 # New feature
 
