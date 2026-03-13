@@ -42,18 +42,12 @@
         Did you mean "char_length"?
         LINE 1: SELECT changes()
 
-
-
-
-[ ] git commit mit passendem Kommentar # manuell
-
-
+[x] git commit mit passendem Kommentar # manuell
 
 ## Step 5 Definition of Done
 
-[ ] Alle Workflow Schritte durchlaufen:
-[ ] Review durchgeführt
-[ ] git commit mit passendem Kommentar # manuell
+[x] Alle Workflow Schritte durchlaufen:
+[x] Review durchgeführt
 [ ] Dokumentation aktualisiert 
 [ ] FAQ ergänzt
 
