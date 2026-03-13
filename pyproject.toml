@@ -18,10 +18,11 @@ dependencies = [
 ]
 
 [project.scripts]
-serve     = "market_data.api:serve"
-ingest    = "market_data.ingestion:run_once"
-scheduler = "market_data.ingestion:run_scheduler"
-migrate   = "market_data.db:migrate"
+serve        = "market_data.api:serve"
+ingest       = "market_data.ingestion:run_once"
+scheduler    = "market_data.ingestion:run_scheduler"
+migrate      = "market_data.db:migrate"
+market-data  = "market_data.cli:main"
 
 [build-system]
 requires = ["hatchling"]

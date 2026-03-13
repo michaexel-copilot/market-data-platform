@@ -7,11 +7,17 @@
 
 # Initialisierung der Datenbank
 
+[ ] /clear # Kontext leeren
+
 initialize the database specified in the project. Store it on the correct place defined in .env file. write a documentation for the schema.
 
 [ ] git commit durchgeführt
 
 # Neues Feature: add-import-script-for-static-data-from-coinmarketcap
+
+## Workflow
+
+[ ] /ospx-propose add-import-script-for-static-data-from-coinmarketcap
 
 ## Description
 
@@ -28,18 +34,27 @@ load the correct data into the duckdb database. extend the tables if you find va
 
 write a documentation for this importer
 
-## Workflow
-
-/ospx-propose add-import-script-for-static-data-from-coinmarketcap
-
-/ ospx-apply
-
-/ospx-archive
-
 ## Definition of Done
 
-[ ] Alle Workflow Schritte durchlaufen
+Alle Workflow Schritte durchlaufen:
+[ ] /ospx-apply
+[ ] /ospx-archive
+
 [ ] git commit durchgeführt
+
+## Datenbankabfragen
+
+SELECT 'cmc_categories'      AS tbl, count(*) FROM cmc_categories      UNION ALL
+SELECT 'cmc_category_coins',          count(*) FROM cmc_category_coins  UNION ALL
+SELECT 'cmc_coin_tags',               count(*) FROM cmc_coin_tags       UNION ALL
+SELECT 'cmc_import_log',              count(*) FROM cmc_import_log      UNION ALL
+SELECT 'cmc_listing_snapshots',       count(*) FROM cmc_listing_snapshots UNION ALL
+SELECT 'cmc_map',                     count(*) FROM cmc_map             UNION ALL
+SELECT 'instrument_crypto',           count(*) FROM instrument_crypto   UNION ALL
+SELECT 'instrument_equity',           count(*) FROM instrument_equity   UNION ALL
+SELECT 'instruments',                 count(*) FROM instruments         UNION ALL
+SELECT 'ohlcv',                       count(*) FROM ohlcv
+ORDER BY tbl;
 
 
 
