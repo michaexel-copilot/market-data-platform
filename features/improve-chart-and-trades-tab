@@ -32,13 +32,13 @@
 Another trade at 2020-03-08 shows a P&L of +45.35 and a max Delta P&L of +4.15 (in red). I would expect that the value is negative.
 - [x] show the summary of the backtest between tihe title e.g. "Short Strategy Trades — SMA-7 Low" and the table or pin the footer at the bottom of the page so the summary is always visible.
 
-[ ] git commit mit passendem Kommentar # manuell
+[x] git commit mit passendem Kommentar # manuell
 
 ## Step 5 Definition of Done
 
-[ ] Alle Workflow Schritte durchlaufen:
-[ ] Review durchgeführt
-[ ] git commit mit passendem Kommentar # manuell
+[x] Alle Workflow Schritte durchlaufen:
+[x] Review durchgeführt
+[x] git commit mit passendem Kommentar # manuell
 [ ] Dokumentation aktualisiert 
 [ ] FAQ ergänzt
 

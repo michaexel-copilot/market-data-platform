@@ -101,14 +101,23 @@ The main chart shows **12 months of daily OHLC data** as a price line (close pri
 
 When a trade is highlighted (see below), blue crosshairs mark the entry date/price and orange crosshairs mark the exit date/price.
 
-### SMA Period
+### SMA Period LOW
 
-Controls the lookback window for all three SMA lines.
+Controls the lookback window for the SMA Low and SMA Close lines (the strategy signal lines).
 
-- **Default**: 44 days
+- **Default**: 7 days
 - **Range**: 1 – 500 days
 - Change by typing a number in the spinner, or using keyboard shortcuts (see [Keyboard Reference](#8-keyboard-reference))
 - The chart and trade table reload automatically when the value changes
+
+### SMA Period HIGH
+
+Controls the lookback window for the SMA High line independently.
+
+- **Default**: 7 days
+- **Range**: 1 – 500 days
+- Same keyboard shortcuts as SMA Period LOW (spinner must be focused)
+- Changes reload the chart automatically
 
 ### Position Size
 
@@ -144,8 +153,12 @@ Shows all signals detected in the last 12 months, most recent first.
 | **Exit Date** | Date the position closed (`—` if still open) |
 | **Exit $** | Price at exit (`—` if still open) |
 | **P&L** | Realised profit/loss in USD. Open positions show a live estimate prefixed with `~`. Green = profit, Red = loss, Blue = open |
+| **Max Δ P&L** | The worst unrealised P&L seen while the trade was open. For **profit trades**: the maximum adverse excursion (how deep in the red the position went before turning profitable) — shown in red; ✓ (green) means the trade was never underwater. For **loss trades**: the maximum favourable excursion (the best unrealised gain before the stop-loss was hit) — shown in green; `—` means the trade was never profitable. Open trades show `—`. |
 
-**Total P&L** is shown at the bottom of the table (closed trades only).
+**Summary bar** (above the table, always visible) shows:
+- **Trade count** — number of closed trades
+- **Total P&L** — sum of all closed-trade P&L (green = positive, red = negative)
+- **Avg P&L/trade** — Total P&L ÷ trade count
 
 **Highlighting a trade**: Click any row to redraw the chart with blue/orange crosshairs marking exactly where that trade was entered and exited.
 
@@ -290,14 +303,16 @@ Performance tab prices are converted to EUR using an exchange rate fetched once 
 | `Escape` | Clear the filter box and focus it |
 | `↓` (from filter box) | Move focus to the first visible asset |
 
-### SMA Period Spinner (Chart & Trades tab, spinner must be focused)
+### SMA Period LOW / HIGH Spinners (Chart & Trades tab, spinner must be focused)
 
 | Key | Change |
 |-----|--------|
 | `+` / `=` | +1 |
 | `-` | −1 |
-| `Shift` + `+` / `-` | ±5 |
+| `Shift` + `+` / `-` | ±7 |
 | `Ctrl` + `Shift` + `+` / `-` | ±10 |
+
+Shortcuts apply independently to whichever spinner is focused.
 
 ---
 
