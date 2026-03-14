@@ -433,7 +433,7 @@ def backtest_long_strategy(
                 trades.append(entry_trade)
                 entry_trade = None
                 in_position = False
-            elif sh_curr > entry_trade["entry_price"] and c_curr["close"] >= sh_curr:
+            elif sh_curr > entry_trade["entry_price"] and c_curr["close"] <= sh_curr:
                 exit_price = sh_curr
                 entry_trade.update({
                     "exit_date":  c_curr["date"],
