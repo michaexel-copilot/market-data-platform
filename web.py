@@ -178,14 +178,14 @@ ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {
 # Chart helpers
 # ---------------------------------------------------------------------------
 
-def _today_prefix(symbol: str, sma_period: int) -> str:
-    """Return the filename prefix used for today's chart, e.g. SOLUSD_2026-02-24_SMA44"""
-    return f"{symbol.upper()}USD_{date.today()}_SMA{sma_period}"
+def _today_prefix(symbol: str, sma_period: int, sma_high_period: int) -> str:
+    """Return the filename prefix used for today's chart, e.g. SOLUSD_2026-02-24_SMAl7_SMAh7"""
+    return f"{symbol.upper()}USD_{date.today()}_SMAl{sma_period}_SMAh{sma_high_period}"
 
 
-def _find_existing_chart(symbol: str, sma_period: int) -> str | None:
+def _find_existing_chart(symbol: str, sma_period: int, sma_high_period: int) -> str | None:
     """Return the filename (not path) of the newest non-highlighted chart for today, or None."""
-    prefix = _today_prefix(symbol, sma_period)
+    prefix = _today_prefix(symbol, sma_period, sma_high_period)
     PNG_DIR.mkdir(exist_ok=True)
     matches = sorted(
         [f for f in PNG_DIR.glob(f"{prefix}_*.png") if "_hi_" not in f.name],
@@ -194,13 +194,13 @@ def _find_existing_chart(symbol: str, sma_period: int) -> str | None:
     return matches[0].name if matches else None
 
 
-def _get_or_create_chart(symbol: str, sma_period: int) -> str | None:
+def _get_or_create_chart(symbol: str, sma_period: int, sma_high_period: int) -> str | None:
     """Return the filename for today's chart, generating it if needed."""
-    existing = _find_existing_chart(symbol, sma_period)
+    existing = _find_existing_chart(symbol, sma_period, sma_high_period)
     if existing:
         return existing
     try:
-        path = draw_chart(symbol, sma_period=sma_period)
+        path = draw_chart(symbol, sma_period=sma_period, sma_high_period=sma_high_period)
         return path.name
     except Exception as exc:  # noqa: BLE001
         print(f"[web] Could not generate chart for {symbol}: {exc}")
@@ -208,15 +208,15 @@ def _get_or_create_chart(symbol: str, sma_period: int) -> str | None:
 
 
 def _get_or_create_highlighted_chart(
-    symbol: str, sma_period: int, highlight: dict
+    symbol: str, sma_period: int, sma_high_period: int, highlight: dict
 ) -> str | None:
     """Generate (or reuse today's) chart PNG with entry/exit crosshairs."""
     entry_date_str = highlight["entry_date"].strftime("%Y-%m-%d")
-    filename = f"{symbol.upper()}USD_{date.today()}_SMA{sma_period}_hi_{entry_date_str}.png"
+    filename = f"{symbol.upper()}USD_{date.today()}_SMAl{sma_period}_SMAh{sma_high_period}_hi_{entry_date_str}.png"
     if (PNG_DIR / filename).exists():
         return filename
     try:
-        path = draw_chart(symbol, sma_period=sma_period, highlight=highlight)
+        path = draw_chart(symbol, sma_period=sma_period, sma_high_period=sma_high_period, highlight=highlight)
         return path.name
     except Exception as exc:  # noqa: BLE001
         print(f"[web] Could not generate highlighted chart for {symbol}: {exc}")
@@ -281,7 +281,8 @@ async def assets_list(request: Request, network: str = "testnet") -> HTMLRespons
 async def asset_detail(
     request: Request,
     symbol: str,
-    sma: int = 44,
+    sma: int = 7,
+    sma_high: int = 7,
     pos: int = 100,
     highlight: str | None = None,
     tab: str = "chart",
@@ -298,7 +299,7 @@ async def asset_detail(
     # Compute candles + SMAs for backtest
     candles: list[dict] = []
     try:
-        candles, _, _, sma_low_vals = prepare_chart_data(sym_upper, sma)
+        candles, _, _, sma_low_vals = prepare_chart_data(sym_upper, sma, sma_high_period=sma_high)
         raw_trades = backtest_strategy(candles, sma_low_vals, position_size_usd=float(pos))
     except Exception as exc:  # noqa: BLE001
         print(f"[web] backtest failed for {sym_upper}: {exc}")
@@ -313,9 +314,9 @@ async def asset_detail(
         )
 
     if highlight_trade:
-        chart_filename = _get_or_create_highlighted_chart(sym_upper, sma, highlight_trade)
+        chart_filename = _get_or_create_highlighted_chart(sym_upper, sma, sma_high, highlight_trade)
     else:
-        chart_filename = _get_or_create_chart(sym_upper, sma)
+        chart_filename = _get_or_create_chart(sym_upper, sma, sma_high)
 
     # Performance data — only fetched when the Performance tab is active
     import json as _json
@@ -365,12 +366,14 @@ async def asset_detail(
     last_close = candles[-1]["close"] if candles else None
     trades = [
         {
-            "entry_date":   t["entry_date"].strftime("%Y-%m-%d"),
-            "entry_price":  t["entry_price"],
-            "exit_date":    t["exit_date"].strftime("%Y-%m-%d") if t["exit_date"] else None,
-            "exit_price":   t["exit_price"],
-            "pnl":          t["pnl"],
-            "is_open":      t["is_open"],
+            "entry_date":         t["entry_date"].strftime("%Y-%m-%d"),
+            "entry_price":        t["entry_price"],
+            "exit_date":          t["exit_date"].strftime("%Y-%m-%d") if t["exit_date"] else None,
+            "exit_price":         t["exit_price"],
+            "pnl":                t["pnl"],
+            "is_open":            t["is_open"],
+            "max_adverse_pnl":    t.get("max_adverse_pnl"),
+            "max_favourable_pnl": t.get("max_favourable_pnl"),
             "virtual_pnl":  (
                 (t["entry_price"] - last_close) / t["entry_price"] * float(pos)
                 if t["is_open"] and last_close is not None
@@ -391,8 +394,9 @@ async def asset_detail(
             "last_close":     last_close,
             "chart_filename": chart_filename,
             "data_source":    get_data_source(sym_upper),
-            "sma_period":     sma,
-            "pos_usd":        pos,
+            "sma_period":        sma,
+            "sma_high":          sma_high,
+            "pos_usd":           pos,
             "trades":         trades,
             "highlight":      highlight,
             "tab":               tab,

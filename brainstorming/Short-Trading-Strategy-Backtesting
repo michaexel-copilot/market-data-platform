@@ -1,0 +1,63 @@
+
+# Frage: 
+on the "Charts and Trades" Tab there is the "Short Strategy Trades" implemented. Let us improve this:
+
+i want to extend the timeframe started from 2020-01-1.
+for this i need a good data source on a daily basis better on an hourly basis. i have access to the eodhd.com intraday data plan. At the the moment i am using yahoo finance as primary source.
+Let us find a good source of data.
+
+# Antwort
+
+What I found in the codebase
+The current setup:
+
+The 5-year candles already exist (fetch_5y_candles()) but only for the Performance tab — not wired into the backtest.
+
+The two asks, separated
+These are related but somewhat independent. Let's think about each.
+
+Ask 1: Extending to 2020 with daily data
+Yahoo Finance can already do this:
+
+But the real complication is coin existence. A lot of the Hyperliquid pairs didn't exist in 2020. Let me check a few representative cases.
+
+Good. Now I can see the full picture. Let me think through this with you.
+
+The coin existence problem
+Before data source matters, many of these tokens didn't exist in 2020:
+
+So the backtest would naturally be shorter for newer tokens — that's unavoidable regardless of source.
+
+Data source comparison for your use case
+The key tension
+Here's what I want to make sure we're seeing clearly:
+
+Daily back to 2020 → Yahoo Finance likely already works. The code currently hardcodes period="1y". Changing to start="2020-01-01" with yfinance should just work for most tokens.
+
+Hourly back to 2020 → That's ~52,000 candles per symbol. Almost no provider reliably has crypto hourly data from 6 years ago. EODHD's intraday plan is typically limited to 1-2 years of hourly lookback.
+
+A question worth sitting with
+What does the short strategy actually need from hourly data?
+
+Right now it works on daily closes — entry and exit are next-day opens (approximately). If you move to hourly, you could:
+
+Get more precise entry/exit timing within the day
+Potentially more trades (shorter SMA period, more crossings)
+But compute and cache costs grow 24×
+Is the goal to backtest more accurately, or to get more historical trades for statistical confidence?
+
+For statistical confidence, extending daily data back to 2020 gets you ~4× more trades at no extra complexity. Going hourly adds precision but also noise.
+
+
+What I'd want to explore next
+A few threads:
+
+[ ] Quick test: Can yfinance already give daily data back to 2020 for a sample token? The infrastructure is mostly already there.
+
+[ ] EODHD reality-check: What does their intraday plan actually cover for crypto? Their EOD endpoint is probably excellent; their 1h intraday depth is worth verifying.
+
+[ ] Binance as an alternative: Free, excellent crypto coverage, GET /api/v3/klines?symbol=BTCUSDT&interval=1h&limit=1000&startTime=... — worth considering seriously.
+
+Which thread pulls at you most?
+
+[ ] One note on scope: extending CG-backed tokens beyond 365 days requires CoinGecko Pro (days=1000+ returns 401 on the free tier). That's a natural candidate for a follow-up change if you want to go all the way to 2020 for SUI, HYPE etc.

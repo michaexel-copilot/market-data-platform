@@ -65,9 +65,9 @@
   <!-- Strategy panel -->
   <div style="flex: 1; min-width: 0">
 
-    <!-- SMA period spinner -->
+    <!-- SMA period LOW spinner -->
     <div class="d-flex align-items-center gap-2 mb-2">
-      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SMA period</label>
+      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SMA period LOW</label>
       <input
         id="sma-input"
         type="number"
@@ -78,7 +78,7 @@
         hx-get="/asset/{{ symbol }}"
         hx-target="#detail-pane"
         hx-swap="innerHTML"
-        hx-include="#pos-input, #tab-input"
+        hx-include="#pos-input, #tab-input, #sma-high-input"
         name="sma"
         hx-trigger="change"
       />
@@ -93,7 +93,43 @@
         if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
         if (dir === 0) return;
         e.preventDefault();
-        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
+        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
+        const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
+        inp.value = next;
+        inp.dispatchEvent(new Event('change'));
+      });
+    })();
+    </script>
+
+    <!-- SMA period HIGH spinner -->
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SMA period HIGH</label>
+      <input
+        id="sma-high-input"
+        type="number"
+        class="form-control"
+        style="width:110px; font-size:1.1rem"
+        min="1" max="500"
+        value="{{ sma_high }}"
+        hx-get="/asset/{{ symbol }}"
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+        hx-include="#pos-input, #tab-input, #sma-input"
+        name="sma_high"
+        hx-trigger="change"
+      />
+    </div>
+    <script>
+    (function () {
+      const inp = document.getElementById('sma-high-input');
+      if (!inp) return;
+      inp.addEventListener('keydown', function (e) {
+        let dir = 0;
+        if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+        if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+        if (dir === 0) return;
+        e.preventDefault();
+        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
         const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
         inp.value = next;
         inp.dispatchEvent(new Event('change'));
@@ -115,14 +151,31 @@
         hx-get="/asset/{{ symbol }}"
         hx-target="#detail-pane"
         hx-swap="innerHTML"
-        hx-include="#sma-input, #tab-input"
+        hx-include="#sma-input, #tab-input, #sma-high-input"
         hx-trigger="change"
       />
     </div>
 
     <!-- Trades table -->
     {% if trades %}
-    <h6 class="fw-semibold mb-2">Short Strategy Trades &mdash; SMA-{{ sma_period }} Low</h6>
+    {% set total_pnl = namespace(value=0, count=0) %}
+    {% for trade in trades %}
+      {% if not trade.is_open and trade.pnl is not none %}
+        {% set total_pnl.value = total_pnl.value + trade.pnl %}
+        {% set total_pnl.count = total_pnl.count + 1 %}
+      {% endif %}
+    {% endfor %}
+    {% set avg_pnl = (total_pnl.value / total_pnl.count) if total_pnl.count > 0 else 0 %}
+    <div class="d-flex align-items-baseline gap-3 mb-2">
+      <h6 class="fw-semibold mb-0">Short Strategy Trades &mdash; SMA-{{ sma_period }} Low</h6>
+      <span class="text-muted" style="font-size:0.9rem">{{ total_pnl.count }} trade{{ "s" if total_pnl.count != 1 }}</span>
+      <span class="fw-semibold {% if total_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:0.9rem">
+        Total P&amp;L: {{ "%+.2f" | format(total_pnl.value) }}
+      </span>
+      <span class="{% if avg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:0.9rem">
+        Avg: {{ "%+.2f" | format(avg_pnl) }}/trade
+      </span>
+    </div>
     <div style="max-height:70vh; overflow-y:auto">
     <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
       <thead class="table-dark sticky-top">
@@ -133,6 +186,7 @@
           <th>Exit Date</th>
           <th>Exit $</th>
           <th>P&amp;L</th>
+          <th title="Max adverse excursion for profit trades; max favourable for loss trades. ✓ = never underwater.">Max &Delta; P&amp;L</th>
         </tr>
       </thead>
       <tbody>
@@ -143,7 +197,7 @@
           hx-get="/asset/{{ symbol }}"
           hx-target="#detail-pane"
           hx-swap="innerHTML"
-          hx-include="#sma-input, #pos-input, #tab-input"
+          hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input"
           hx-vals='{"highlight": "{{ trade.entry_date }}"}'
         >
           <td>{{ loop.index }}</td>
@@ -168,6 +222,31 @@
               \u2014
             {%- endif -%}
           </td>
+          <td class="
+            {%- if trade.is_open -%}text-muted
+            {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
+              {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}text-danger{%- else -%}text-success{%- endif -%}
+            {%- elif trade.pnl is not none and trade.pnl < 0 -%}
+              {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}text-success{%- else -%}text-muted{%- endif -%}
+            {%- endif -%}">
+            {%- if trade.is_open -%}
+              &mdash;
+            {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
+              {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}
+                {{ "%+.2f" | format(trade.max_adverse_pnl) }}
+              {%- else -%}
+                &#10003;
+              {%- endif -%}
+            {%- elif trade.pnl is not none and trade.pnl < 0 -%}
+              {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}
+                {{ "%+.2f" | format(trade.max_favourable_pnl) }}
+              {%- else -%}
+                &mdash;
+              {%- endif -%}
+            {%- else -%}
+              &mdash;
+            {%- endif -%}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -179,7 +258,7 @@
           {% endif %}
         {% endfor %}
         <tr class="fw-bold">
-          <td colspan="5" class="text-end">Total P&amp;L</td>
+          <td colspan="6" class="text-end">Total P&amp;L</td>
           <td class="{% if total_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}">
             {{ "%+.2f" | format(total_pnl.value) }}
           </td>
@@ -196,6 +275,7 @@
 {% elif tab == "performance" %}
 <!-- Hidden sma-input so tab-switch back to chart preserves the SMA value -->
 <input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
+<input type="hidden" id="sma-high-input" name="sma_high" value="{{ sma_high }}">
 <input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
 <!-- Performance stats table -->
 <div class="mt-1">
@@ -402,6 +482,7 @@
 
 {% elif tab == "fundamentals" %}
 <input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
+<input type="hidden" id="sma-high-input" name="sma_high" value="{{ sma_high }}">
 <input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
 <div class="row g-3 mt-1">
 
@@ -492,6 +573,7 @@
 
 {% elif tab == "order" %}
 <input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
+<input type="hidden" id="sma-high-input" name="sma_high" value="{{ sma_high }}">
 <input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
 
 <div id="order-form-card" class="card shadow-sm mt-2" style="max-width:540px">

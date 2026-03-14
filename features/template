@@ -1,0 +1,36 @@
+# $feature_name$
+
+$description of the feature$
+
+## Step 1
+[ ] /clear # clears the context window
+[ ] /ospx-propose $feature_name$
+
+### Rückfragen KI (Claude Sonnet 4.6)
+[ ] $rueckfragen von ki$
+
+### Review
+[ ] Review Proposal durchgeführt.
+[ ] Alle Aspekte berücksichtigt
+
+## Step 2
+[ ] /ospx-apply
+
+## Step 3 archive
+[ ] /ospx-archive $feature_name$
+
+## Step 4 Nacharbeiten
+[ ] Review aller Tasks aus Step 0
+- [ ] xxx
+[ ] git commit mit passendem Kommentar # manuell
+
+## Step 5 Definition of Done
+
+[ ] Alle Workflow Schritte durchlaufen:
+[ ] Review durchgeführt
+[ ] git commit mit passendem Kommentar # manuell
+[ ] Dokumentation aktualisiert 
+[ ] FAQ ergänzt
+
+
+

@@ -69,11 +69,12 @@ CG_COIN_ID_MAP: dict[str, str] = {
     "FTM":    "fantom",                  # Fantom
     "S":      "sonic-3",                 # Sonic (rebranded from FTM)
     "STG":    "stargate-finance",        # Stargate
+    "UNI":    "uniswap",                 # Uniswap — YF "UNI-USD" is UNICORN Token (wrong coin)
     "ZORA":   "zora",                    # Zora
     "WCT":    "connect-token-wct",       # WalletConnect Token
 }
 
-CG_OHLC_URL = "https://api.coingecko.com/api/v3/coins/{id}/ohlc"
+CG_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
 
 
 def get_data_source(hl_symbol: str) -> str:
@@ -132,44 +133,63 @@ def _save_cache(yf_ticker: str, candles: list[dict]) -> None:
 
 
 def _fetch_from_yf(yf_ticker: str) -> list[dict]:
-    """Fetch daily OHLCV candles from Yahoo Finance."""
-    hist = yf.Ticker(yf_ticker).history(period="1y", interval="1d", auto_adjust=True)
+    """Fetch daily OHLCV candles from Yahoo Finance, from 2020-01-01 to today."""
+    import math
+    hist = yf.Ticker(yf_ticker).history(start="2020-01-01", interval="1d", auto_adjust=True)
     if hist.empty:
         raise ValueError(f"No data returned from Yahoo Finance for ticker '{yf_ticker}'")
 
     candles = []
     for ts, row in hist.iterrows():
-        dt = ts.to_pydatetime()
+        o, h, l, c = float(row["Open"]), float(row["High"]), float(row["Low"]), float(row["Close"])
+        # Skip rows with NaN or zero prices (data quality gaps from early history)
+        if any(math.isnan(v) or v == 0.0 for v in (o, h, l, c)):
+            continue
         candles.append({
-            "date":  dt,
-            "open":  float(row["Open"]),
-            "high":  float(row["High"]),
-            "low":   float(row["Low"]),
-            "close": float(row["Close"]),
+            "date":  ts.to_pydatetime(),
+            "open":  o,
+            "high":  h,
+            "low":   l,
+            "close": c,
         })
+    if not candles:
+        raise ValueError(f"No valid price data from Yahoo Finance for ticker '{yf_ticker}'")
     candles.sort(key=lambda c: c["date"])
     return candles
 
 
 def _fetch_from_coingecko(cg_id: str) -> list[dict]:
-    """Fetch up to 365 days of daily OHLC candles from CoinGecko (free tier)."""
-    url = CG_OHLC_URL.format(id=cg_id)
-    resp = requests.get(url, params={"vs_currency": "usd", "days": "365"}, timeout=20)
-    resp.raise_for_status()
-    raw = resp.json()
-    if not raw or isinstance(raw, dict):
-        raise ValueError(f"No OHLC data from CoinGecko for '{cg_id}': {raw}")
+    """Fetch daily close candles from CoinGecko market_chart (free tier).
+
+    Uses /market_chart?days=365 which auto-returns one data point per day for
+    ranges > 90 days, unlike /ohlc which silently degrades to 4-day candles.
+    Returns close-only candles (open/high/low set equal to close).
+    Retries once on 429 rate-limit responses after a short backoff.
+    """
+    import time as _time
+    url = CG_MARKET_CHART_URL.format(id=cg_id)
+    params = {"vs_currency": "usd", "days": "365"}
+    for attempt in range(2):
+        resp = requests.get(url, params=params, timeout=20)
+        if resp.status_code == 429 and attempt == 0:
+            _time.sleep(12)  # CG free tier: ~5 req/min sustained; wait and retry
+            continue
+        resp.raise_for_status()
+        break
+    data = resp.json()
+    prices = data.get("prices", [])
+    if not prices:
+        raise ValueError(f"No market_chart data from CoinGecko for '{cg_id}'")
 
     candles = []
-    for entry in raw:
-        # CoinGecko format: [timestamp_ms, open, high, low, close]
-        ts_ms, o, h, l, c = entry
+    for ts_ms, price in prices:
+        # market_chart returns close prices only — set OHLC all to close
         candles.append({
             "date":  datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc),
-            "open":  o,
-            "high":  h,
-            "low":   l,
-            "close": c,
+            "open":  price,
+            "high":  price,
+            "low":   price,
+            "close": price,
         })
     candles.sort(key=lambda c: c["date"])
     return candles
@@ -177,7 +197,9 @@ def _fetch_from_coingecko(cg_id: str) -> list[dict]:
 
 def fetch_ohlcv(source_key: str) -> list[dict]:
     """
-    Fetch ~365 daily OHLCV candles.  source_key is either a Yahoo Finance
+    Fetch daily OHLCV candles.  Yahoo Finance-backed tokens return data from
+    2020-01-01 to today; CoinGecko-backed tokens return the last 365 days
+    (free-tier maximum for daily granularity).  source_key is either a Yahoo Finance
     ticker (e.g. "SOL-USD") or a CoinGecko key prefixed with "cg:"
     (e.g. "cg:hyperliquid").  Results are cached to disk for the current day.
     Returns a list of dicts sorted by date with keys: date, open, high, low, close.
@@ -209,11 +231,13 @@ def sma(values: list[float], period: int) -> list[float | None]:
 
 def prepare_chart_data(
     hl_symbol: str,
-    sma_period: int = 44,
+    sma_period: int = 7,
+    sma_high_period: int = 7,
 ) -> tuple[list[dict], list, list, list]:
     """
     Fetch & scale candles, compute SMA arrays.
     Returns (candles, sma_close, sma_high, sma_low).
+    sma_period controls SMA Low and SMA Close; sma_high_period controls SMA High.
     Each call returns a fresh list (OHLCV cache is re-read every call).
     """
     source_key, multiplier = resolve_source_key(hl_symbol)
@@ -231,7 +255,7 @@ def prepare_chart_data(
     closes = [c["close"] for c in candles]
     highs  = [c["high"]  for c in candles]
     lows   = [c["low"]   for c in candles]
-    return candles, sma(closes, sma_period), sma(highs, sma_period), sma(lows, sma_period)
+    return candles, sma(closes, sma_period), sma(highs, sma_high_period), sma(lows, sma_period)
 
 
 def backtest_strategy(
@@ -245,10 +269,17 @@ def backtest_strategy(
     Stop   : close >= entry x 1.10  -> exit at stop_loss price  (loss).
     Profit : close >= sma_low[i]    -> exit at sma_low[i]       (profit when sma fell below entry).
     No new entry while a position is open.  Returns all trades (incl. open).
+
+    Each closed trade includes:
+      max_adverse_pnl    — worst unrealised P&L seen (most negative for profit trades).
+      max_favourable_pnl — best  unrealised P&L seen (most positive for loss trades).
+    Both are None for open trades. Computed from daily close prices.
     """
     trades: list[dict] = []
     in_position = False
     entry_trade: dict | None = None
+    _running_max_upnl: float = 0.0   # tracks maximum favourable unrealised P&L
+    _running_min_upnl: float = 0.0   # tracks maximum adverse unrealised P&L
 
     for i in range(1, len(candles)):
         sl_prev = sma_low[i - 1]
@@ -272,9 +303,20 @@ def backtest_strategy(
                     "pnl":         None,
                     "is_open":     True,
                 }
+                _running_max_upnl = -float("inf")
+                _running_min_upnl = float("inf")
                 in_position = True
         else:
             assert entry_trade is not None
+            upnl = (
+                (entry_trade["entry_price"] - c_curr["close"])
+                / entry_trade["entry_price"]
+                * position_size_usd
+            )
+            if upnl > _running_max_upnl:
+                _running_max_upnl = upnl
+            if upnl < _running_min_upnl:
+                _running_min_upnl = upnl
             if c_curr["close"] >= entry_trade["stop_loss"]:
                 exit_price = entry_trade["stop_loss"]
                 entry_trade.update({
@@ -284,6 +326,8 @@ def backtest_strategy(
                     "pnl": (entry_trade["entry_price"] - exit_price)
                            / entry_trade["entry_price"] * position_size_usd,
                     "is_open": False,
+                    "max_adverse_pnl":    _running_min_upnl,
+                    "max_favourable_pnl": _running_max_upnl,
                 })
                 trades.append(entry_trade)
                 entry_trade = None
@@ -297,12 +341,16 @@ def backtest_strategy(
                     "pnl": (entry_trade["entry_price"] - exit_price)
                            / entry_trade["entry_price"] * position_size_usd,
                     "is_open": False,
+                    "max_adverse_pnl":    _running_min_upnl,
+                    "max_favourable_pnl": _running_max_upnl,
                 })
                 trades.append(entry_trade)
                 entry_trade = None
                 in_position = False
 
     if in_position and entry_trade:
+        entry_trade["max_adverse_pnl"] = None
+        entry_trade["max_favourable_pnl"] = None
         trades.append(entry_trade)
 
     return trades
@@ -310,10 +358,11 @@ def backtest_strategy(
 
 def draw_chart(
     hl_symbol: str,
-    sma_period: int = 44,
+    sma_period: int = 7,
     highlight: dict | None = None,
+    sma_high_period: int = 7,
 ) -> Path:
-    candles, sma_close, sma_high, sma_low = prepare_chart_data(hl_symbol, sma_period)
+    candles, sma_close, sma_high, sma_low = prepare_chart_data(hl_symbol, sma_period, sma_high_period)
 
     dates  = [c["date"] for c in candles]
     closes = [c["close"] for c in candles]
@@ -333,7 +382,7 @@ def draw_chart(
             d_, v_ = zip(*pairs)
             ax.plot(d_, v_, color=color, linewidth=1, label=label)
 
-    plot_sma(ax, dates, sma_high,  "#99ccff", f"SMA{sma_period} High")
+    plot_sma(ax, dates, sma_high,  "#99ccff", f"SMA{sma_high_period} High")
     plot_sma(ax, dates, sma_low,   "#327819", f"SMA{sma_period} Low")
     plot_sma(ax, dates, sma_close, "#bd44bd", f"SMA{sma_period} Close")
 
@@ -372,10 +421,10 @@ def draw_chart(
     today_str = date.today().isoformat()
     if highlight and highlight.get("entry_idx") is not None:
         entry_date_str = candles[highlight["entry_idx"]]["date"].strftime("%Y-%m-%d")
-        filename = f"{hl_symbol.upper()}USD_{today_str}_SMA{sma_period}_hi_{entry_date_str}.png"
+        filename = f"{hl_symbol.upper()}USD_{today_str}_SMAl{sma_period}_SMAh{sma_high_period}_hi_{entry_date_str}.png"
     else:
         now = datetime.now()
-        filename = f"{hl_symbol.upper()}USD_{today_str}_SMA{sma_period}_{now.strftime('%H-%M-%S')}.png"
+        filename = f"{hl_symbol.upper()}USD_{today_str}_SMAl{sma_period}_SMAh{sma_high_period}_{now.strftime('%H-%M-%S')}.png"
     out_path = PNG_DIR / filename
     fig.savefig(out_path, dpi=100, bbox_inches="tight")
     plt.close(fig)

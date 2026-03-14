@@ -1,0 +1,46 @@
+# improve-chart-and-trades-tab
+
+[x] on the "Chart & trades" add a column to the table:
+- [x] show the delta to the P&L during the holding period. show the max loss when the trade was in profit and vice versa.
+
+- [x] for further refinement of the backtesting algorithm:
+
+- [x] rename the spinner "SMA period" to "SMA period LOW", change the default value to 7 and change the behaviour when pressing Shift + "+/-": increment by 7 not by 5 as it currently is.
+
+- [x] add a new spinner "SMA period HIGH", set the default value to 7 and implement the same hot keys as with the  "SMA period LOW"
+
+## Step 1
+[x] /clear # clears the context window
+[x] /ospx-propose improve-chart-and-trades-tab
+
+### Rückfragen KI (Claude Sonnet 4.6)
+[x] $rueckfragen von ki$ -> keine
+
+### Review
+[x] Review Proposal durchgeführt.
+[x] Alle Aspekte berücksichtigt
+
+## Step 2
+[x] /ospx-apply
+
+## Step 3 archive
+[x] /ospx-archive improve-chart-and-trades-tab
+
+## Step 4 Nacharbeiten
+[x] Review aller Tasks aus Step 0
+- [x] When looking at the backtest on ADA (Cardano) there is a trade at 2020-03-29 that shows a P&L of -10$ and a max Delta P&L of -5.75 (in green). I would expect that this value red.
+Another trade at 2020-03-08 shows a P&L of +45.35 and a max Delta P&L of +4.15 (in red). I would expect that the value is negative.
+- [x] show the summary of the backtest between tihe title e.g. "Short Strategy Trades — SMA-7 Low" and the table or pin the footer at the bottom of the page so the summary is always visible.
+
+[ ] git commit mit passendem Kommentar # manuell
+
+## Step 5 Definition of Done
+
+[ ] Alle Workflow Schritte durchlaufen:
+[ ] Review durchgeführt
+[ ] git commit mit passendem Kommentar # manuell
+[ ] Dokumentation aktualisiert 
+[ ] FAQ ergänzt
+
+
+
