@@ -62,3 +62,16 @@ The SMA High line SHALL be computed using `sma_high_period`; the SMA Low and SMA
 - **WHEN** `prepare_chart_data()` is called with `sma_period=7` and `sma_high_period=21`
 - **THEN** the returned sma_high values SHALL be a 21-period SMA of daily highs
 - **AND** the returned sma_low values SHALL be a 7-period SMA of daily lows
+
+---
+
+### Requirement: SMA spinner hx-include chains
+All spinner `hx-include` attributes and hidden inputs on non-chart tabs SHALL be extended to carry the new params: `sl_short`, `sl_long`, `strategy_tab`, and `hl_long` in addition to the existing `sma`, `sma_high`, `pos`, and `tab` inputs.
+
+#### Scenario: Full param set on spinner change
+- **WHEN** any spinner changes on the Chart & Trades tab
+- **THEN** the HTMX request includes `sma`, `sma_high`, `pos`, `tab`, `sl_short`, `sl_long`, `strategy_tab`, `hl_short`, `hl_long`
+
+#### Scenario: Hidden inputs on non-chart tabs
+- **WHEN** the Performance, Fundamentals, or Order tab is active
+- **THEN** hidden inputs for `sma_high`, `sl_short`, `sl_long`, `strategy_tab`, `hl_short`, `hl_long` are present in the DOM so their values are preserved

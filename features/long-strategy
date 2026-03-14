@@ -1,0 +1,39 @@
+# long-strategy
+
+implement the long strategy as developed in the explore phase.
+
+add a new new trading strategy:
+[x] add a button and implement invert the short strategy to a long strategy. if there are open questions ask me. 
+
+## Step 1
+[x] /clear # clears the context window
+[x] /ospx-propose long-strategy
+
+### Rückfragen KI (Claude Sonnet 4.6)
+[x] $rueckfragen von ki$ -> keine
+
+### Review
+[x] Review Proposal durchgeführt.
+[x] Alle Aspekte berücksichtigt
+
+## Step 2
+[x] /ospx-apply
+
+## Step 3 archive
+[x] /ospx-archive long-strategy
+[x] update documentation
+
+## Step 4 Nacharbeiten
+[x] Review aller Tasks aus Step 0
+[ ] git commit mit passendem Kommentar # manuell
+
+## Step 5 Definition of Done
+
+[x] Alle Workflow Schritte durchlaufen:
+[x] Review durchgeführt
+[x] git commit mit passendem Kommentar # manuell
+[x] Dokumentation aktualisiert 
+[x] FAQ ergänzt
+
+
+

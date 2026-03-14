@@ -99,11 +99,15 @@ The main chart shows **12 months of daily OHLC data** as a price line (close pri
 | SMA Low | Green | Simple moving average of daily **lows** — the **strategy signal line** |
 | SMA Close | Purple | Simple moving average of daily closes |
 
-When a trade is highlighted (see below), blue crosshairs mark the entry date/price and orange crosshairs mark the exit date/price.
+When a trade is highlighted (see Highlighting below):
+- **Short trade**: blue crosshairs (dashed) mark the entry and orange crosshairs (dashed) mark the exit
+- **Long trade**: green crosshairs (dotted) mark the entry and red crosshairs (dotted) mark the exit
+
+Both highlights can be active simultaneously — switching sub-tabs does not clear the other strategy's crosshairs.
 
 ### SMA Period LOW
 
-Controls the lookback window for the SMA Low and SMA Close lines (the strategy signal lines).
+Controls the lookback window for the SMA Low and SMA Close lines — the signal line for the **Short Strategy**.
 
 - **Default**: 7 days
 - **Range**: 1 – 500 days
@@ -112,12 +116,30 @@ Controls the lookback window for the SMA Low and SMA Close lines (the strategy s
 
 ### SMA Period HIGH
 
-Controls the lookback window for the SMA High line independently.
+Controls the lookback window for the SMA High line — the signal line for the **Long Strategy**.
 
 - **Default**: 7 days
 - **Range**: 1 – 500 days
 - Same keyboard shortcuts as SMA Period LOW (spinner must be focused)
 - Changes reload the chart automatically
+
+### SL Short %
+
+Sets the stop-loss percentage for the Short Strategy.
+
+- **Default**: 10%
+- **Range**: 1% – 50%
+- A value of 10 means the short exits at a loss when the price rises 10% above the entry price
+- Same keyboard shortcuts as the SMA spinners (spinner must be focused)
+
+### SL Long %
+
+Sets the stop-loss percentage for the Long Strategy.
+
+- **Default**: 10%
+- **Range**: 1% – 50%
+- A value of 10 means the long exits at a loss when the price falls 10% below the entry price
+- Same keyboard shortcuts as the SMA spinners (spinner must be focused)
 
 ### Position Size
 
@@ -127,40 +149,73 @@ Sets the hypothetical USD position size used to calculate P&L in the trade table
 - **Minimum**: $100, in steps of $100
 - Changing the value reloads the trade table
 
+### Strategy Sub-Tabs
+
+Below the chart, two pill buttons let you switch between the Short and Long strategy trade tables:
+
+| Tab | Icon | Signal Line Used |
+|-----|------|-----------------|
+| **Short** | ▼ | SMA Period LOW |
+| **Long** | ▲ | SMA Period HIGH |
+
+The active sub-tab is remembered when you change SMA periods, SL %, position size, or switch between the top-level tabs (Chart, Performance, Fundamentals, Order) and back. Only the sub-tab's own trade table and summary are shown; the chart always displays both SMA lines.
+
 ### Short Strategy — How It Works
 
 The strategy backtests a simple short-selling rule on the last 12 months of daily data:
 
 **Entry**: The daily close crosses **below** the SMA-Low line (it was ≥ SMA-Low yesterday and < SMA-Low today). A short position is opened at the closing price.
 
-**Exit — Stop Loss**: If the close rises to ≥ 110% of the entry price, the position exits at exactly entry × 1.10 (a −10% loss on the position).
+**Exit — Stop Loss**: If the close rises to ≥ `(1 + SL Short % / 100)` × entry price, the position exits at that level (a loss).
 
-**Exit — Take Profit**: If the SMA-Low falls to below the entry price and the current close is ≥ the current SMA-Low, the position exits at the current SMA-Low value (a profit).
+**Exit — Take Profit**: If the SMA-Low falls below the entry price and the current close is ≥ the current SMA-Low, the position exits at the current SMA-Low value (a profit).
 
 Only one position can be open at a time. Each new entry waits for the previous position to close.
 
 P&L is calculated as: `(entry_price − exit_price) / entry_price × position_size_usd`
 
-### Trade Table
+### Long Strategy — How It Works
 
-Shows all signals detected in the last 12 months, most recent first.
+The strategy backtests a simple long-buying rule on the last 12 months of daily data:
+
+**Entry**: The daily close crosses **above** the SMA-High line (it was ≤ SMA-High yesterday and > SMA-High today). A long position is opened at the closing price.
+
+**Exit — Stop Loss**: If the close falls to ≤ `(1 − SL Long % / 100)` × entry price, the position exits at that level (a loss).
+
+**Exit — Take Profit**: If the SMA-High rises above the entry price and the current close is ≥ the current SMA-High, the position exits at the current SMA-High value (a profit).
+
+Only one position can be open at a time.
+
+P&L is calculated as: `(exit_price − entry_price) / entry_price × position_size_usd`
+
+### Trade Tables
+
+Each strategy has its own table showing all signals detected in the last 12 months, most recent first.
 
 | Column | Description |
 |--------|------------|
 | **#** | Signal number |
-| **Entry Date** | Date the short was entered |
+| **Entry Date** | Date the position was entered |
 | **Entry $** | Price at entry (4 significant figures) |
 | **Exit Date** | Date the position closed (`—` if still open) |
 | **Exit $** | Price at exit (`—` if still open) |
 | **P&L** | Realised profit/loss in USD. Open positions show a live estimate prefixed with `~`. Green = profit, Red = loss, Blue = open |
-| **Max Δ P&L** | The worst unrealised P&L seen while the trade was open. For **profit trades**: the maximum adverse excursion (how deep in the red the position went before turning profitable) — shown in red; ✓ (green) means the trade was never underwater. For **loss trades**: the maximum favourable excursion (the best unrealised gain before the stop-loss was hit) — shown in green; `—` means the trade was never profitable. Open trades show `—`. |
+| **Max Δ P&L** | The worst unrealised P&L seen while the trade was open — see below |
+
+**Max Δ P&L details:**
+
+*Short strategy*: For **profit trades**: the maximum adverse excursion (how deep in the red the position went before turning profitable) — shown in red; ✓ (green) means the trade was never underwater. For **loss trades**: the maximum favourable excursion (the best unrealised gain before the stop-loss was hit) — shown in green; `—` means the trade was never profitable.
+
+*Long strategy*: Mirrored — adverse means price fell (shown in red), favourable means price rose (shown in green).
+
+Open trades show `—` in Max Δ P&L.
 
 **Summary bar** (above the table, always visible) shows:
 - **Trade count** — number of closed trades
 - **Total P&L** — sum of all closed-trade P&L (green = positive, red = negative)
 - **Avg P&L/trade** — Total P&L ÷ trade count
 
-**Highlighting a trade**: Click any row to redraw the chart with blue/orange crosshairs marking exactly where that trade was entered and exited.
+**Highlighting a trade**: Click any row to redraw the chart with crosshairs at that trade's entry and exit. Short trades use blue (entry) and orange (exit) dashed crosshairs; long trades use green (entry) and red (exit) dotted crosshairs. Both strategies' highlights persist independently.
 
 If no signals were found in the last 12 months, a message is displayed instead of a table.
 
@@ -303,16 +358,16 @@ Performance tab prices are converted to EUR using an exchange rate fetched once 
 | `Escape` | Clear the filter box and focus it |
 | `↓` (from filter box) | Move focus to the first visible asset |
 
-### SMA Period LOW / HIGH Spinners (Chart & Trades tab, spinner must be focused)
+### SMA Period LOW / HIGH and SL Short % / SL Long % Spinners (Chart & Trades tab, spinner must be focused)
 
 | Key | Change |
 |-----|--------|
 | `+` / `=` | +1 |
 | `-` | −1 |
-| `Shift` + `+` / `-` | ±7 |
+| `Shift` + `+` / `-` | ±5 |
 | `Ctrl` + `Shift` + `+` / `-` | ±10 |
 
-Shortcuts apply independently to whichever spinner is focused.
+Shortcuts apply independently to whichever spinner is focused. The same key bindings work for all four spinners.
 
 ---
 

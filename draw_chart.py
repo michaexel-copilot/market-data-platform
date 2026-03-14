@@ -258,15 +258,16 @@ def prepare_chart_data(
     return candles, sma(closes, sma_period), sma(highs, sma_high_period), sma(lows, sma_period)
 
 
-def backtest_strategy(
+def backtest_short_strategy(
     candles: list[dict],
     sma_low: list[float | None],
     position_size_usd: float = 100.0,
+    stop_loss_pct: float = 0.10,
 ) -> list[dict]:
     """
     Short strategy backtest (daily close prices).
     Entry  : close crosses below sma_low (was >= yesterday, now <).
-    Stop   : close >= entry x 1.10  -> exit at stop_loss price  (loss).
+    Stop   : close >= entry x (1 + stop_loss_pct)  -> exit at stop price  (loss).
     Profit : close >= sma_low[i]    -> exit at sma_low[i]       (profit when sma fell below entry).
     No new entry while a position is open.  Returns all trades (incl. open).
 
@@ -295,7 +296,7 @@ def backtest_strategy(
                 entry_trade = {
                     "entry_date":  c_curr["date"],
                     "entry_price": entry_price,
-                    "stop_loss":   entry_price * 1.10,
+                    "stop_loss":   entry_price * (1 + stop_loss_pct),
                     "entry_idx":   i,
                     "exit_date":   None,
                     "exit_price":  None,
@@ -356,11 +357,114 @@ def backtest_strategy(
     return trades
 
 
+def backtest_long_strategy(
+    candles: list[dict],
+    sma_high: list[float | None],
+    position_size_usd: float = 100.0,
+    stop_loss_pct: float = 0.10,
+) -> list[dict]:
+    """
+    Long strategy backtest (daily close prices) — mirror of the short strategy.
+    Entry  : close crosses above sma_high (was <= yesterday, now >).
+    Stop   : close <= entry x (1 - stop_loss_pct)  -> exit at stop price  (loss).
+    Profit : sma_high[i] > entry_price AND close[i] >= sma_high[i]
+             -> exit at sma_high[i]  (profit when sma rose above entry).
+    No new entry while a position is open.  Returns all trades (incl. open).
+
+    Each closed trade includes:
+      max_adverse_pnl    — worst unrealised P&L seen (most negative; price fell).
+      max_favourable_pnl — best  unrealised P&L seen (most positive; price rose but not closed yet).
+    Both are None for open trades. Computed from daily close prices.
+    """
+    trades: list[dict] = []
+    in_position = False
+    entry_trade: dict | None = None
+    _running_max_upnl: float = 0.0
+    _running_min_upnl: float = 0.0
+
+    for i in range(1, len(candles)):
+        sh_prev = sma_high[i - 1]
+        sh_curr = sma_high[i]
+        if sh_prev is None or sh_curr is None:
+            continue
+        c_curr = candles[i]
+        c_prev = candles[i - 1]
+
+        if not in_position:
+            if c_prev["close"] <= sh_prev and c_curr["close"] > sh_curr:
+                entry_price = c_curr["close"]
+                entry_trade = {
+                    "entry_date":  c_curr["date"],
+                    "entry_price": entry_price,
+                    "stop_loss":   entry_price * (1 - stop_loss_pct),
+                    "entry_idx":   i,
+                    "exit_date":   None,
+                    "exit_price":  None,
+                    "exit_idx":    None,
+                    "pnl":         None,
+                    "is_open":     True,
+                }
+                _running_max_upnl = -float("inf")
+                _running_min_upnl = float("inf")
+                in_position = True
+        else:
+            assert entry_trade is not None
+            upnl = (
+                (c_curr["close"] - entry_trade["entry_price"])
+                / entry_trade["entry_price"]
+                * position_size_usd
+            )
+            if upnl > _running_max_upnl:
+                _running_max_upnl = upnl
+            if upnl < _running_min_upnl:
+                _running_min_upnl = upnl
+            if c_curr["close"] <= entry_trade["stop_loss"]:
+                exit_price = entry_trade["stop_loss"]
+                entry_trade.update({
+                    "exit_date":  c_curr["date"],
+                    "exit_price": exit_price,
+                    "exit_idx":   i,
+                    "pnl": (exit_price - entry_trade["entry_price"])
+                           / entry_trade["entry_price"] * position_size_usd,
+                    "is_open": False,
+                    "max_adverse_pnl":    _running_min_upnl,
+                    "max_favourable_pnl": _running_max_upnl,
+                })
+                trades.append(entry_trade)
+                entry_trade = None
+                in_position = False
+            elif sh_curr > entry_trade["entry_price"] and c_curr["close"] >= sh_curr:
+                exit_price = sh_curr
+                entry_trade.update({
+                    "exit_date":  c_curr["date"],
+                    "exit_price": exit_price,
+                    "exit_idx":   i,
+                    "pnl": (exit_price - entry_trade["entry_price"])
+                           / entry_trade["entry_price"] * position_size_usd,
+                    "is_open": False,
+                    "max_adverse_pnl":    _running_min_upnl,
+                    "max_favourable_pnl": _running_max_upnl,
+                })
+                trades.append(entry_trade)
+                entry_trade = None
+                in_position = False
+
+    if in_position and entry_trade:
+        entry_trade["max_adverse_pnl"] = None
+        entry_trade["max_favourable_pnl"] = None
+        trades.append(entry_trade)
+
+    return trades
+
+
 def draw_chart(
     hl_symbol: str,
     sma_period: int = 7,
-    highlight: dict | None = None,
+    hl_short: dict | None = None,
     sma_high_period: int = 7,
+    hl_long: dict | None = None,
+    sl_short: float = 0.10,
+    sl_long: float = 0.10,
 ) -> Path:
     candles, sma_close, sma_high, sma_low = prepare_chart_data(hl_symbol, sma_period, sma_high_period)
 
@@ -386,17 +490,29 @@ def draw_chart(
     plot_sma(ax, dates, sma_low,   "#327819", f"SMA{sma_period} Low")
     plot_sma(ax, dates, sma_close, "#bd44bd", f"SMA{sma_period} Close")
 
-    # Crosshairs for highlighted trade
-    if highlight:
-        ei = highlight.get("entry_idx")
-        xi = highlight.get("exit_idx")
+    # Crosshairs for highlighted short trade (blue entry / orange exit)
+    if hl_short:
+        ei = hl_short.get("entry_idx")
+        xi = hl_short.get("exit_idx")
         if ei is not None and ei < len(candles):
-            ax.axvline(x=dates[ei], color="#0055cc", linewidth=1.5, linestyle="--", alpha=0.9, label="Entry")
+            ax.axvline(x=dates[ei], color="#0055cc", linewidth=1.5, linestyle="--", alpha=0.9, label="Short Entry")
             ax.axhline(y=closes[ei], color="#0055cc", linewidth=1.5, linestyle="--", alpha=0.9)
         if xi is not None and xi < len(candles):
-            xprice = highlight.get("exit_price") or closes[xi]
-            ax.axvline(x=dates[xi], color="#cc5500", linewidth=1.5, linestyle="--", alpha=0.9, label="Exit")
+            xprice = hl_short.get("exit_price") or closes[xi]
+            ax.axvline(x=dates[xi], color="#cc5500", linewidth=1.5, linestyle="--", alpha=0.9, label="Short Exit")
             ax.axhline(y=xprice,    color="#cc5500", linewidth=1.5, linestyle="--", alpha=0.9)
+
+    # Crosshairs for highlighted long trade (green entry / red exit)
+    if hl_long:
+        ei = hl_long.get("entry_idx")
+        xi = hl_long.get("exit_idx")
+        if ei is not None and ei < len(candles):
+            ax.axvline(x=dates[ei], color="#1a7a1a", linewidth=1.5, linestyle=":", alpha=0.9, label="Long Entry")
+            ax.axhline(y=closes[ei], color="#1a7a1a", linewidth=1.5, linestyle=":", alpha=0.9)
+        if xi is not None and xi < len(candles):
+            xprice = hl_long.get("exit_price") or closes[xi]
+            ax.axvline(x=dates[xi], color="#cc0000", linewidth=1.5, linestyle=":", alpha=0.9, label="Long Exit")
+            ax.axhline(y=xprice,    color="#cc0000", linewidth=1.5, linestyle=":", alpha=0.9)
 
     # X-axis: tick at the 1st of each month, label as "Mon YYYY"
     ax.xaxis.set_major_locator(mdates.MonthLocator(bymonthday=1))
@@ -419,12 +535,17 @@ def draw_chart(
     # --- Save ------------------------------------------------------------------
     PNG_DIR.mkdir(exist_ok=True)
     today_str = date.today().isoformat()
-    if highlight and highlight.get("entry_idx") is not None:
-        entry_date_str = candles[highlight["entry_idx"]]["date"].strftime("%Y-%m-%d")
-        filename = f"{hl_symbol.upper()}USD_{today_str}_SMAl{sma_period}_SMAh{sma_high_period}_hi_{entry_date_str}.png"
+    sl_s = int(round(sl_short * 100))
+    sl_l = int(round(sl_long * 100))
+    hs_idx = hl_short.get("entry_idx") if hl_short else None
+    hl_idx = hl_long.get("entry_idx") if hl_long else None
+    if hs_idx is not None or hl_idx is not None:
+        hs_str = f"hs{hs_idx}" if hs_idx is not None else "hs-"
+        hl_str = f"hl{hl_idx}" if hl_idx is not None else "hl-"
+        filename = f"{hl_symbol.upper()}USD_{today_str}_SMAl{sma_period}_SMAh{sma_high_period}_SLs{sl_s}_SLl{sl_l}_{hs_str}_{hl_str}.png"
     else:
         now = datetime.now()
-        filename = f"{hl_symbol.upper()}USD_{today_str}_SMAl{sma_period}_SMAh{sma_high_period}_{now.strftime('%H-%M-%S')}.png"
+        filename = f"{hl_symbol.upper()}USD_{today_str}_SMAl{sma_period}_SMAh{sma_high_period}_SLs{sl_s}_SLl{sl_l}_{now.strftime('%H-%M-%S')}.png"
     out_path = PNG_DIR / filename
     fig.savefig(out_path, dpi=100, bbox_inches="tight")
     plt.close(fig)
