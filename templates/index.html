@@ -365,6 +365,21 @@ function activateItem(el) {
   el.classList.add('active');
   el.focus();
   el.scrollIntoView({ block: 'nearest' });
+
+  // Auto-trigger Find Best SMA once the detail pane has been swapped in
+  const detailPane = document.getElementById('detail-pane');
+  if (detailPane) {
+    const observer = new MutationObserver(function(mutations, obs) {
+      obs.disconnect();
+      // Defer click so HTMX has time to process hx-* attributes on new DOM
+      setTimeout(function() {
+        const btn = document.getElementById('find-best-sma-btn');
+        if (btn) btn.click();
+      }, 50);
+    });
+    observer.observe(detailPane, { childList: true });
+  }
+
   htmx.trigger(el, 'click');
 }
 

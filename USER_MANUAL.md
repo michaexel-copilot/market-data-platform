@@ -105,41 +105,49 @@ When a trade is highlighted (see Highlighting below):
 
 Both highlights can be active simultaneously — switching sub-tabs does not clear the other strategy's crosshairs.
 
-### SMA Period LOW
+### SMA Period LOW and SL Short % (left column)
 
-Controls the lookback window for the SMA Low and SMA Close lines — the signal line for the **Short Strategy**.
+The left column contains two controls for the **Short Strategy**:
+
+**SMA Period LOW** — controls the lookback window for the SMA Low and SMA Close signal lines.
 
 - **Default**: 7 days
 - **Range**: 1 – 500 days
 - Change by typing a number in the spinner, or using keyboard shortcuts (see [Keyboard Reference](#8-keyboard-reference))
 - The chart and trade table reload automatically when the value changes
 
-### SMA Period HIGH
+**SL Short %** — sets the stop-loss percentage for the Short Strategy.
 
-Controls the lookback window for the SMA High line — the signal line for the **Long Strategy**.
+- **Default**: 10%
+- **Range**: 1% – 50%
+- A value of 10 means the short exits at a loss when the price rises 10% above the entry price
+
+### SMA Period HIGH and SL Long % (right column)
+
+The right column contains two controls for the **Long Strategy**:
+
+**SMA Period HIGH** — controls the lookback window for the SMA High signal line.
 
 - **Default**: 7 days
 - **Range**: 1 – 500 days
 - Same keyboard shortcuts as SMA Period LOW (spinner must be focused)
 - Changes reload the chart automatically
 
-### SL Short %
-
-Sets the stop-loss percentage for the Short Strategy.
-
-- **Default**: 10%
-- **Range**: 1% – 50%
-- A value of 10 means the short exits at a loss when the price rises 10% above the entry price
-- Same keyboard shortcuts as the SMA spinners (spinner must be focused)
-
-### SL Long %
-
-Sets the stop-loss percentage for the Long Strategy.
+**SL Long %** — sets the stop-loss percentage for the Long Strategy.
 
 - **Default**: 10%
 - **Range**: 1% – 50%
 - A value of 10 means the long exits at a loss when the price falls 10% below the entry price
-- Same keyboard shortcuts as the SMA spinners (spinner must be focused)
+
+### Find Best SMA
+
+The **Find Best SMA** button searches all SMA LOW × SMA HIGH period combinations in the range 3–50 and selects the pair that maximises the combined average P&L per closed trade across both strategies.
+
+- **Auto-runs** when you select a ticker — no manual click needed
+- Results are **cached** per symbol for the current day; repeated clicks use the cached result instantly
+- After the calculation completes, **the SMA Period LOW and SMA Period HIGH spinners are updated** to the winning values and the chart reloads automatically
+- You can also click the button manually at any time (e.g. after changing SL %)
+- A spinner indicator is shown on the button while the calculation runs (may take a few seconds)
 
 ### Position Size
 
@@ -149,16 +157,6 @@ Sets the hypothetical USD position size used to calculate P&L in the trade table
 - **Minimum**: $100, in steps of $100
 - Changing the value reloads the trade table
 
-### Strategy Sub-Tabs
-
-Below the chart, two pill buttons let you switch between the Short and Long strategy trade tables:
-
-| Tab | Icon | Signal Line Used |
-|-----|------|-----------------|
-| **Short** | ▼ | SMA Period LOW |
-| **Long** | ▲ | SMA Period HIGH |
-
-The active sub-tab is remembered when you change SMA periods, SL %, position size, or switch between the top-level tabs (Chart, Performance, Fundamentals, Order) and back. Only the sub-tab's own trade table and summary are shown; the chart always displays both SMA lines.
 
 ### Short Strategy — How It Works
 
@@ -188,12 +186,20 @@ Only one position can be open at a time.
 
 P&L is calculated as: `(exit_price − entry_price) / entry_price × position_size_usd`
 
-### Trade Tables
+### Trade Table
 
-Each strategy has its own table showing all signals detected in the last 12 months, most recent first.
+All short and long trades from the last 12 months are shown in a **single unified table**, sorted by entry date descending (most recent first). Each row is colour-coded by direction:
+
+| Row colour | Direction |
+|------------|-----------|
+| Light red (`#ffe8e8`) | Short trade |
+| Light green (`#e8f5e8`) | Long trade |
+
+*Note: the P&L and Max Δ P&L columns retain only their text colour (green/red) and are not given the row background colour.*
 
 | Column | Description |
 |--------|------------|
+| **Dir** | ▼ Short or ▲ Long |
 | **#** | Signal number |
 | **Entry Date** | Date the position was entered |
 | **Entry $** | Price at entry (4 significant figures) |
@@ -210,7 +216,7 @@ Each strategy has its own table showing all signals detected in the last 12 mont
 
 Open trades show `—` in Max Δ P&L.
 
-**Summary bar** (above the table, always visible) shows:
+**Strategy summaries** (above the table, always visible) show two compact blocks — one for Short, one for Long — each displaying:
 - **Trade count** — number of closed trades
 - **Total P&L** — sum of all closed-trade P&L (green = positive, red = negative)
 - **Avg P&L/trade** — Total P&L ÷ trade count

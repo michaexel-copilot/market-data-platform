@@ -1,0 +1,45 @@
+# find-best-sma-pair
+
+[x] on the "Chart & trades" tab add a button to find the best pair of sma (in terms of the average profit per trade) for the short and long strategy. cache the result of the rather complex calculation. After calculation:
+- [x] update the corresponding spinners to these values
+
+Further improvements:
+
+[x] join the tables for short and long trades. add a column to indicate the direction and colorize all columns except the p&l and max delta p&l background with a light red for shorts and a light green for long trades.
+
+[x] show the summaries for both directions before the table
+
+[x] place the SMA spinner side by side and the corresponding % fileds under the correspondig directions
+
+## Step 1
+[x] /clear # clears the context window
+[x] /ospx-propose find-best-sma-pair
+
+### Rückfragen KI (Claude Sonnet 4.6)
+[x] $rueckfragen von ki$
+
+### Review
+[x] Review Proposal durchgeführt.
+[x] Alle Aspekte berücksichtigt
+
+## Step 2
+[x] /ospx-apply
+
+## Step 3 archive
+[x] /ospx-archive find-best-sma-pair
+[x] update documentation
+
+## Step 4 Nacharbeiten
+[x] Review aller Tasks aus Step 0
+[ ] git commit mit passendem Kommentar # manuell
+
+## Step 5 Definition of Done
+
+[x] Alle Workflow Schritte durchlaufen:
+[x] Review durchgeführt
+[x] git commit mit passendem Kommentar # manuell
+[x] Dokumentation aktualisiert 
+[x] FAQ ergänzt
+
+
+

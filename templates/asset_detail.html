@@ -65,217 +65,259 @@
   <!-- Strategy panel -->
   <div style="flex: 1; min-width: 0">
 
-    <!-- SMA period LOW spinner -->
-    <div class="d-flex align-items-center gap-2 mb-2">
-      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SMA period LOW</label>
-      <input
-        id="sma-input"
-        type="number"
-        class="form-control"
-        style="width:110px; font-size:1.1rem"
-        min="1" max="500"
-        value="{{ sma_period }}"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-        name="sma"
-        hx-trigger="change"
-      />
-    </div>
-    <script>
-    (function () {
-      const inp = document.getElementById('sma-input');
-      if (!inp) return;
-      inp.addEventListener('keydown', function (e) {
-        let dir = 0;
-        if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-        if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-        if (dir === 0) return;
-        e.preventDefault();
-        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
-        const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
-        inp.value = next;
-        inp.dispatchEvent(new Event('change'));
-      });
-    })();
-    </script>
+    <!-- SMA spinners + SL fields: side-by-side layout -->
+    <div class="row g-2 mb-2">
+      <!-- Left col: SMA LOW + SL Short -->
+      <div class="col-auto">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <label class="form-label mb-0 text-muted" style="font-size:1rem">SMA LOW <span class="badge bg-danger" style="font-size:0.7rem">Short &#9660;</span></label>
+          <input
+            id="sma-input"
+            type="number"
+            class="form-control"
+            style="width:90px; font-size:1rem"
+            min="1" max="500"
+            value="{{ sma_period }}"
+            hx-get="/asset/{{ symbol }}"
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+            hx-include="#pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
+            name="sma"
+            hx-trigger="change"
+          />
+        </div>
+        <script>
+        (function () {
+          const inp = document.getElementById('sma-input');
+          if (!inp) return;
+          inp.addEventListener('keydown', function (e) {
+            let dir = 0;
+            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+            if (dir === 0) return;
+            e.preventDefault();
+            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
+            const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
+            inp.value = next;
+            inp.dispatchEvent(new Event('change'));
+          });
+        })();
+        </script>
+        <div class="d-flex align-items-center gap-2">
+          <label class="form-label mb-0 text-muted" style="font-size:1rem">SL Short %</label>
+          <input
+            id="sl-short-input"
+            type="number"
+            class="form-control"
+            style="width:90px; font-size:1rem"
+            min="1" max="50"
+            value="{{ sl_short }}"
+            hx-get="/asset/{{ symbol }}"
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+            hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-long-input, #hl-short-input, #hl-long-input"
+            name="sl_short"
+            hx-trigger="change"
+          />
+        </div>
+        <script>
+        (function () {
+          const inp = document.getElementById('sl-short-input');
+          if (!inp) return;
+          inp.addEventListener('keydown', function (e) {
+            let dir = 0;
+            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+            if (dir === 0) return;
+            e.preventDefault();
+            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
+            const next = Math.min(50, Math.max(1, parseInt(inp.value, 10) + dir * step));
+            inp.value = next;
+            inp.dispatchEvent(new Event('change'));
+          });
+        })();
+        </script>
+      </div>
 
-    <!-- SMA period HIGH spinner -->
-    <div class="d-flex align-items-center gap-2 mb-2">
-      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SMA period HIGH</label>
-      <input
-        id="sma-high-input"
-        type="number"
-        class="form-control"
-        style="width:110px; font-size:1.1rem"
-        min="1" max="500"
-        value="{{ sma_high }}"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#pos-input, #tab-input, #sma-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-        name="sma_high"
-        hx-trigger="change"
-      />
+      <!-- Right col: SMA HIGH + SL Long -->
+      <div class="col-auto">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <label class="form-label mb-0 text-muted" style="font-size:1rem">SMA HIGH <span class="badge bg-success" style="font-size:0.7rem">Long &#9650;</span></label>
+          <input
+            id="sma-high-input"
+            type="number"
+            class="form-control"
+            style="width:90px; font-size:1rem"
+            min="1" max="500"
+            value="{{ sma_high }}"
+            hx-get="/asset/{{ symbol }}"
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+            hx-include="#pos-input, #tab-input, #sma-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
+            name="sma_high"
+            hx-trigger="change"
+          />
+        </div>
+        <script>
+        (function () {
+          const inp = document.getElementById('sma-high-input');
+          if (!inp) return;
+          inp.addEventListener('keydown', function (e) {
+            let dir = 0;
+            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+            if (dir === 0) return;
+            e.preventDefault();
+            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
+            const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
+            inp.value = next;
+            inp.dispatchEvent(new Event('change'));
+          });
+        })();
+        </script>
+        <div class="d-flex align-items-center gap-2">
+          <label class="form-label mb-0 text-muted" style="font-size:1rem">SL Long %</label>
+          <input
+            id="sl-long-input"
+            type="number"
+            class="form-control"
+            style="width:90px; font-size:1rem"
+            min="1" max="50"
+            value="{{ sl_long }}"
+            hx-get="/asset/{{ symbol }}"
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+            hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #hl-short-input, #hl-long-input"
+            name="sl_long"
+            hx-trigger="change"
+          />
+        </div>
+        <script>
+        (function () {
+          const inp = document.getElementById('sl-long-input');
+          if (!inp) return;
+          inp.addEventListener('keydown', function (e) {
+            let dir = 0;
+            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
+            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
+            if (dir === 0) return;
+            e.preventDefault();
+            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
+            const next = Math.min(50, Math.max(1, parseInt(inp.value, 10) + dir * step));
+            inp.value = next;
+            inp.dispatchEvent(new Event('change'));
+          });
+        })();
+        </script>
+      </div>
     </div>
-    <script>
-    (function () {
-      const inp = document.getElementById('sma-high-input');
-      if (!inp) return;
-      inp.addEventListener('keydown', function (e) {
-        let dir = 0;
-        if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-        if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-        if (dir === 0) return;
-        e.preventDefault();
-        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
-        const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
-        inp.value = next;
-        inp.dispatchEvent(new Event('change'));
-      });
-    })();
-    </script>
 
     <!-- Position size spinner -->
-    <div class="d-flex align-items-center gap-2 mb-3">
-      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">Position ($)</label>
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <label class="form-label mb-0 text-muted" style="font-size:1rem">Position ($)</label>
       <input
         id="pos-input"
         type="number"
         class="form-control"
-        style="width:130px; font-size:1.1rem"
+        style="width:120px; font-size:1rem"
         min="100" step="100"
         value="{{ pos_usd }}"
         name="pos"
         hx-get="/asset/{{ symbol }}"
         hx-target="#detail-pane"
         hx-swap="innerHTML"
-        hx-include="#sma-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
+        hx-include="#sma-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
         hx-trigger="change"
       />
     </div>
 
-    <!-- SL Short % spinner -->
-    <div class="d-flex align-items-center gap-2 mb-2">
-      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SL Short %</label>
-      <input
-        id="sl-short-input"
-        type="number"
-        class="form-control"
-        style="width:110px; font-size:1.1rem"
-        min="1" max="50"
-        value="{{ sl_short }}"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-        name="sl_short"
-        hx-trigger="change"
-      />
+    <!-- Find Best SMA button -->
+    <div class="mb-3">
+      <button
+        id="find-best-sma-btn"
+        class="btn btn-sm btn-outline-primary"
+        hx-get="/asset/{{ symbol }}/best-sma"
+        hx-include="#sl-short-input, #sl-long-input, #pos-input"
+        hx-indicator="#find-best-sma-btn"
+        hx-on::after-request="
+          try {
+            if (!event.detail.successful) return;
+            const raw = (event.detail.xhr && event.detail.xhr.responseText)
+                        || event.detail.serverResponse || '';
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            if (data.sma && data.sma_high) {
+              const url = '/asset/{{ symbol }}?sma=' + data.sma + '&sma_high=' + data.sma_high
+                + '&pos={{ pos_usd }}&sl_short={{ sl_short }}&sl_long={{ sl_long }}&tab=chart';
+              htmx.ajax('GET', url, {target: '#detail-pane', swap: 'innerHTML'});
+            }
+          } catch(err) { console.error('[best-sma]', err); }
+        "
+      >
+        <span class="htmx-indicator spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+        Find Best SMA
+      </button>
     </div>
-    <script>
-    (function () {
-      const inp = document.getElementById('sl-short-input');
-      if (!inp) return;
-      inp.addEventListener('keydown', function (e) {
-        let dir = 0;
-        if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-        if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-        if (dir === 0) return;
-        e.preventDefault();
-        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
-        const next = Math.min(50, Math.max(1, parseInt(inp.value, 10) + dir * step));
-        inp.value = next;
-        inp.dispatchEvent(new Event('change'));
-      });
-    })();
-    </script>
 
-    <!-- SL Long % spinner -->
-    <div class="d-flex align-items-center gap-2 mb-2">
-      <label class="form-label mb-0 text-muted" style="font-size:1.1rem">SL Long %</label>
-      <input
-        id="sl-long-input"
-        type="number"
-        class="form-control"
-        style="width:110px; font-size:1.1rem"
-        min="1" max="50"
-        value="{{ sl_long }}"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-        name="sl_long"
-        hx-trigger="change"
-      />
-    </div>
-    <script>
-    (function () {
-      const inp = document.getElementById('sl-long-input');
-      if (!inp) return;
-      inp.addEventListener('keydown', function (e) {
-        let dir = 0;
-        if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-        if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-        if (dir === 0) return;
-        e.preventDefault();
-        const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
-        const next = Math.min(50, Math.max(1, parseInt(inp.value, 10) + dir * step));
-        inp.value = next;
-        inp.dispatchEvent(new Event('change'));
-      });
-    })();
-    </script>
-
-    <!-- Strategy sub-tabs -->
-    <input type="hidden" id="strategy-tab-input" name="strategy_tab" value="{{ strategy_tab }}">
+    <!-- Hidden inputs -->
     <input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
     <input type="hidden" id="hl-long-input" name="hl_long" value="{{ hl_long if hl_long is not none else '' }}">
-    <div class="btn-group btn-group-sm mb-3" role="group">
-      <button type="button"
-        class="btn btn-outline-danger{% if strategy_tab == 'short' %} active{% endif %}"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
-        hx-vals='{"strategy_tab": "short"}'
-      >&#9660; Short</button>
-      <button type="button"
-        class="btn btn-outline-success{% if strategy_tab == 'long' %} active{% endif %}"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
-        hx-vals='{"strategy_tab": "long"}'
-      >&#9650; Long</button>
-    </div>
 
-    <!-- SHORT trades table -->
-    {% if strategy_tab == 'short' %}
-    {% if trades %}
-    {% set total_pnl = namespace(value=0, count=0) %}
-    {% for trade in trades %}
-      {% if not trade.is_open and trade.pnl is not none %}
-        {% set total_pnl.value = total_pnl.value + trade.pnl %}
-        {% set total_pnl.count = total_pnl.count + 1 %}
+    <!-- Dual strategy summaries -->
+    {% set s_total = namespace(value=0, count=0) %}
+    {% for t in trades %}
+      {% if not t.is_open and t.pnl is not none %}
+        {% set s_total.value = s_total.value + t.pnl %}
+        {% set s_total.count = s_total.count + 1 %}
       {% endif %}
     {% endfor %}
-    {% set avg_pnl = (total_pnl.value / total_pnl.count) if total_pnl.count > 0 else 0 %}
-    <div class="d-flex align-items-baseline gap-3 mb-2">
-      <h6 class="fw-semibold mb-0">Short Strategy Trades &mdash; SMA-{{ sma_period }} Low &mdash; SL {{ sl_short }}%</h6>
-      <span class="text-muted" style="font-size:0.9rem">{{ total_pnl.count }} trade{{ "s" if total_pnl.count != 1 }}</span>
-      <span class="fw-semibold {% if total_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:0.9rem">
-        Total P&amp;L: {{ "%+.2f" | format(total_pnl.value) }}
-      </span>
-      <span class="{% if avg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:0.9rem">
-        Avg: {{ "%+.2f" | format(avg_pnl) }}/trade
-      </span>
+    {% set l_total = namespace(value=0, count=0) %}
+    {% for t in long_trades %}
+      {% if not t.is_open and t.pnl is not none %}
+        {% set l_total.value = l_total.value + t.pnl %}
+        {% set l_total.count = l_total.count + 1 %}
+      {% endif %}
+    {% endfor %}
+    {% set s_avg = (s_total.value / s_total.count) if s_total.count > 0 else 0 %}
+    {% set l_avg = (l_total.value / l_total.count) if l_total.count > 0 else 0 %}
+    <div class="d-flex gap-3 mb-2 flex-wrap">
+      <div class="border rounded px-3 py-1" style="background:#fff5f5; font-size:0.85rem">
+        <span class="fw-semibold text-danger">&#9660; Short</span>
+        &nbsp;SMA-{{ sma_period }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_short }}%
+        &nbsp;&nbsp;
+        <span class="text-muted">{{ s_total.count }} trade{{ "s" if s_total.count != 1 }}</span>
+        &nbsp;
+        <span class="fw-semibold {% if s_total.value >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(s_total.value) }}</span>
+        &nbsp;
+        <span class="{% if s_avg >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(s_avg) }}</span>
+      </div>
+      <div class="border rounded px-3 py-1" style="background:#f5fff5; font-size:0.85rem">
+        <span class="fw-semibold text-success">&#9650; Long</span>
+        &nbsp;SMA-{{ sma_high }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_long }}%
+        &nbsp;&nbsp;
+        <span class="text-muted">{{ l_total.count }} trade{{ "s" if l_total.count != 1 }}</span>
+        &nbsp;
+        <span class="fw-semibold {% if l_total.value >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(l_total.value) }}</span>
+        &nbsp;
+        <span class="{% if l_avg >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(l_avg) }}</span>
+      </div>
     </div>
+
+    <!-- Unified trade table (short + long, sorted by entry date desc) -->
+    {% set all_trades = [] %}
+    {% for t in trades %}
+      {% set _ = all_trades.append({"dir": "short", "trade": t}) %}
+    {% endfor %}
+    {% for t in long_trades %}
+      {% set _ = all_trades.append({"dir": "long", "trade": t}) %}
+    {% endfor %}
+    {% set all_trades = all_trades | sort(attribute="trade.entry_date", reverse=True) %}
+    {% if all_trades %}
     <div style="max-height:70vh; overflow-y:auto">
     <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
       <thead class="table-dark sticky-top">
         <tr>
+          <th>Dir</th>
           <th>#</th>
           <th>Entry Date</th>
           <th>Entry $</th>
@@ -286,153 +328,42 @@
         </tr>
       </thead>
       <tbody>
-        {% for trade in trades %}
+        {% set row_num = namespace(value=0) %}
+        {% for item in all_trades %}
+        {% set trade = item.trade %}
+        {% set dir = item.dir %}
+        {% set row_bg = "#ffe8e8" if dir == "short" else "#e8f5e8" %}
+        {% set row_num.value = row_num.value + 1 %}
+        {% set is_highlighted = (dir == "short" and (highlight == trade.entry_date or highlight == trade.idx | string)) or (dir == "long" and hl_long == trade.idx) %}
         <tr
           style="cursor:pointer"
-          {% if highlight == trade.entry_date or highlight == trade.idx | string %}class="table-primary"{% endif %}
+          {% if is_highlighted %}class="table-primary"{% endif %}
           hx-get="/asset/{{ symbol }}"
           hx-target="#detail-pane"
           hx-swap="innerHTML"
-          hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-long-input"
-          hx-vals='{"highlight": "{{ trade.idx }}"}'
-        >
-          <td>{{ loop.index }}</td>
-          <td>{{ trade.entry_date }}</td>
-          <td>${{ "%.2f" | format(trade.entry_price) }}</td>
-          <td>{{ trade.exit_date if trade.exit_date else "\u2014" }}</td>
-          <td>{{ ("$%.2f" | format(trade.exit_price)) if trade.exit_price else "\u2014" }}</td>
-          <td class="
-            {%- if trade.is_open -%}text-primary fw-semibold
-            {%- elif trade.pnl is not none -%}
-              {%- if trade.pnl >= 0 -%}text-success fw-semibold{%- else -%}text-danger fw-semibold{%- endif -%}
-            {%- endif -%}">
-            {%- if trade.is_open -%}
-              {%- if trade.virtual_pnl is not none -%}
-                ~{{ "%+.2f" | format(trade.virtual_pnl) }}
-              {%- else -%}
-                \u2014
-              {%- endif -%}
-            {%- elif trade.pnl is not none -%}
-              {{ "%+.2f" | format(trade.pnl) }}
-            {%- else -%}
-              \u2014
-            {%- endif -%}
-          </td>
-          <td class="
-            {%- if trade.is_open -%}text-muted
-            {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
-              {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}text-danger{%- else -%}text-success{%- endif -%}
-            {%- elif trade.pnl is not none and trade.pnl < 0 -%}
-              {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}text-success{%- else -%}text-muted{%- endif -%}
-            {%- endif -%}">
-            {%- if trade.is_open -%}
-              &mdash;
-            {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
-              {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}
-                {{ "%+.2f" | format(trade.max_adverse_pnl) }}
-              {%- else -%}
-                &#10003;
-              {%- endif -%}
-            {%- elif trade.pnl is not none and trade.pnl < 0 -%}
-              {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}
-                {{ "%+.2f" | format(trade.max_favourable_pnl) }}
-              {%- else -%}
-                &mdash;
-              {%- endif -%}
-            {%- else -%}
-              &mdash;
-            {%- endif -%}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      <tfoot>
-        {% set total_pnl = namespace(value=0) %}
-        {% for trade in trades %}
-          {% if not trade.is_open and trade.pnl is not none %}
-            {% set total_pnl.value = total_pnl.value + trade.pnl %}
+          hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input"
+          {% if dir == "short" %}
+          hx-vals='{"highlight": "{{ trade.idx }}", "hl_long": ""}'
+          {% else %}
+          hx-vals='{"hl_long": {{ trade.idx }}, "highlight": ""}'
           {% endif %}
-        {% endfor %}
-        <tr class="fw-bold">
-          <td colspan="6" class="text-end">Total P&amp;L</td>
-          <td class="{% if total_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}">
-            {{ "%+.2f" | format(total_pnl.value) }}
-          </td>
-        </tr>
-      </tfoot>
-    </table>
-    </div>
-    {% else %}
-    <p class="text-muted small mt-2">No short trade signals in the last 12 months.</p>
-    {% endif %}
-    {% endif %}{# strategy_tab == 'short' #}
-
-    <!-- LONG trades table -->
-    {% if strategy_tab == 'long' %}
-    {% if long_trades %}
-    {% set ltotal_pnl = namespace(value=0, count=0) %}
-    {% for trade in long_trades %}
-      {% if not trade.is_open and trade.pnl is not none %}
-        {% set ltotal_pnl.value = ltotal_pnl.value + trade.pnl %}
-        {% set ltotal_pnl.count = ltotal_pnl.count + 1 %}
-      {% endif %}
-    {% endfor %}
-    {% set lavg_pnl = (ltotal_pnl.value / ltotal_pnl.count) if ltotal_pnl.count > 0 else 0 %}
-    <div class="d-flex align-items-baseline gap-3 mb-2">
-      <h6 class="fw-semibold mb-0">Long Strategy Trades &mdash; SMA-{{ sma_high }} High &mdash; SL {{ sl_long }}%</h6>
-      <span class="text-muted" style="font-size:0.9rem">{{ ltotal_pnl.count }} trade{{ "s" if ltotal_pnl.count != 1 }}</span>
-      <span class="fw-semibold {% if ltotal_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:0.9rem">
-        Total P&amp;L: {{ "%+.2f" | format(ltotal_pnl.value) }}
-      </span>
-      <span class="{% if lavg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:0.9rem">
-        Avg: {{ "%+.2f" | format(lavg_pnl) }}/trade
-      </span>
-    </div>
-    <div style="max-height:70vh; overflow-y:auto">
-    <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
-      <thead class="table-dark sticky-top">
-        <tr>
-          <th>#</th>
-          <th>Entry Date</th>
-          <th>Entry $</th>
-          <th>Exit Date</th>
-          <th>Exit $</th>
-          <th>P&amp;L</th>
-          <th title="Max adverse excursion for profit trades; max favourable for loss trades. ✓ = never underwater.">Max &Delta; P&amp;L</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for trade in long_trades %}
-        <tr
-          style="cursor:pointer"
-          {% if hl_long == trade.idx %}class="table-primary"{% endif %}
-          hx-get="/asset/{{ symbol }}"
-          hx-target="#detail-pane"
-          hx-swap="innerHTML"
-          hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input"
-          hx-vals='{"hl_long": {{ trade.idx }}}'
         >
-          <td>{{ loop.index }}</td>
-          <td>{{ trade.entry_date }}</td>
-          <td>${{ "%.2f" | format(trade.entry_price) }}</td>
-          <td>{{ trade.exit_date if trade.exit_date else "&mdash;" }}</td>
-          <td>{{ ("$%.2f" | format(trade.exit_price)) if trade.exit_price else "&mdash;" }}</td>
+          <td style="background-color:{{ row_bg }}">{{ ("&#9660;" if dir == "short" else "&#9650;") | safe }}</td>
+          <td style="background-color:{{ row_bg }}">{{ row_num.value }}</td>
+          <td style="background-color:{{ row_bg }}">{{ trade.entry_date }}</td>
+          <td style="background-color:{{ row_bg }}">${{ "%.2f" | format(trade.entry_price) }}</td>
+          <td style="background-color:{{ row_bg }}">{{ trade.exit_date if trade.exit_date else "\u2014" }}</td>
+          <td style="background-color:{{ row_bg }}">{{ ("$%.2f" | format(trade.exit_price)) if trade.exit_price else "\u2014" }}</td>
           <td class="
             {%- if trade.is_open -%}text-primary fw-semibold
             {%- elif trade.pnl is not none -%}
               {%- if trade.pnl >= 0 -%}text-success fw-semibold{%- else -%}text-danger fw-semibold{%- endif -%}
             {%- endif -%}">
             {%- if trade.is_open -%}
-              {%- if trade.virtual_pnl is not none -%}
-                ~{{ "%+.2f" | format(trade.virtual_pnl) }}
-              {%- else -%}
-                &mdash;
-              {%- endif -%}
+              {%- if trade.virtual_pnl is not none -%}~{{ "%+.2f" | format(trade.virtual_pnl) }}{%- else -%}&mdash;{%- endif -%}
             {%- elif trade.pnl is not none -%}
               {{ "%+.2f" | format(trade.pnl) }}
-            {%- else -%}
-              &mdash;
-            {%- endif -%}
+            {%- else -%}&mdash;{%- endif -%}
           </td>
           <td class="
             {%- if trade.is_open -%}text-muted
@@ -446,36 +377,21 @@
             {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
               {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}
                 {{ "%+.2f" | format(trade.max_adverse_pnl) }}
-              {%- else -%}
-                &#10003;
-              {%- endif -%}
+              {%- else -%}&#10003;{%- endif -%}
             {%- elif trade.pnl is not none and trade.pnl < 0 -%}
               {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}
                 {{ "%+.2f" | format(trade.max_favourable_pnl) }}
-              {%- else -%}
-                &mdash;
-              {%- endif -%}
-            {%- else -%}
-              &mdash;
-            {%- endif -%}
+              {%- else -%}&mdash;{%- endif -%}
+            {%- else -%}&mdash;{%- endif -%}
           </td>
         </tr>
         {% endfor %}
       </tbody>
-      <tfoot>
-        <tr class="fw-bold">
-          <td colspan="6" class="text-end">Total P&amp;L</td>
-          <td class="{% if ltotal_pnl.value >= 0 %}text-success{% else %}text-danger{% endif %}">
-            {{ "%+.2f" | format(ltotal_pnl.value) }}
-          </td>
-        </tr>
-      </tfoot>
     </table>
     </div>
     {% else %}
-    <p class="text-muted small mt-2">No long trade signals in the last 12 months.</p>
+    <p class="text-muted small mt-2">No trade signals in the last 12 months.</p>
     {% endif %}
-    {% endif %}{# strategy_tab == 'long' #}
 
   </div>
 </div>

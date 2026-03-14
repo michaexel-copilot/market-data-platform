@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 
 from cmc_info import fetch_cmc_info, fetch_cmc_info_batch, fetch_market_caps  # noqa: E402
 from cg_market import fetch_cg_market  # noqa: E402
-from draw_chart import backtest_short_strategy, backtest_long_strategy, draw_chart, get_data_source, prepare_chart_data  # noqa: E402
+from draw_chart import backtest_short_strategy, backtest_long_strategy, draw_chart, get_data_source, prepare_chart_data, fetch_ohlcv, resolve_source_key, sma as _sma, K_SCALE_SET  # noqa: E402
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # noqa: E402
 from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
@@ -173,6 +173,81 @@ ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {
     **{a["symbol"]: a for a in MAINNET_ASSETS},  # mainnet takes precedence
 }
 
+# ---------------------------------------------------------------------------
+# Best-SMA optimization cache  (keyed by (symbol_upper, date))
+# ---------------------------------------------------------------------------
+BEST_SMA_CACHE: dict[tuple[str, date], tuple[int, int]] = {}
+
+_BEST_SMA_MIN = 3
+_BEST_SMA_MAX = 50
+
+
+def _find_best_sma(
+    symbol: str,
+    sl_short: float,
+    sl_long: float,
+    pos: float,
+) -> tuple[int, int]:
+    """Brute-force search over SMA LOW × SMA HIGH ∈ [3,50]. Returns (sma_low, sma_high)."""
+    sym_upper = symbol.upper()
+    cache_key = (sym_upper, date.today())
+    if cache_key in BEST_SMA_CACHE:
+        return BEST_SMA_CACHE[cache_key]
+
+    # Fetch OHLCV once (disk-cached per day) and scale prices.
+    source_key, multiplier = resolve_source_key(sym_upper)
+    candles = fetch_ohlcv(source_key)
+    if multiplier != 1.0:
+        candles = [
+            {**c, "open": c["open"] * multiplier, "high": c["high"] * multiplier,
+             "low": c["low"] * multiplier, "close": c["close"] * multiplier}
+            for c in candles
+        ]
+    closes = [c["close"] for c in candles]
+    highs  = [c["high"]  for c in candles]
+    lows   = [c["low"]   for c in candles]
+
+    best_score = float("-inf")
+    best_pair = (_BEST_SMA_MIN, _BEST_SMA_MIN)
+
+    # Pre-compute all SMA arrays for the search range.
+    sma_low_arrays:  dict[int, list] = {p: _sma(lows, p)   for p in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1)}
+    sma_high_arrays: dict[int, list] = {p: _sma(highs, p)  for p in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1)}
+
+    for sma_low in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1):
+        sma_low_vals = sma_low_arrays[sma_low]
+        short_trades = backtest_short_strategy(
+            candles, sma_low_vals,
+            position_size_usd=pos,
+            stop_loss_pct=sl_short / 100.0,
+        )
+        for sma_high in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1):
+            sma_high_vals = sma_high_arrays[sma_high]
+            long_trades = backtest_long_strategy(
+                candles, sma_high_vals,
+                position_size_usd=pos,
+                stop_loss_pct=sl_long / 100.0,
+            )
+            closed_pnl = sum(
+                t["pnl"] for t in short_trades
+                if not t["is_open"] and t["pnl"] is not None
+            ) + sum(
+                t["pnl"] for t in long_trades
+                if not t["is_open"] and t["pnl"] is not None
+            )
+            n_closed = sum(
+                1 for t in short_trades if not t["is_open"] and t["pnl"] is not None
+            ) + sum(
+                1 for t in long_trades if not t["is_open"] and t["pnl"] is not None
+            )
+            score = closed_pnl / n_closed if n_closed > 0 else float("-inf")
+            if score > best_score:
+                best_score = score
+                best_pair = (sma_low, sma_high)
+
+    BEST_SMA_CACHE[cache_key] = best_pair
+    return best_pair
+
 
 # ---------------------------------------------------------------------------
 # Chart helpers
@@ -315,6 +390,7 @@ async def asset_detail(
     sl_long: int = 10,
     hl_long: str | None = None,
     strategy_tab: str = "short",
+    auto_sma: int = 0,
 ) -> HTMLResponse:
     hl_long_int: int | None = int(hl_long) if hl_long not in (None, "") else None
     sym_upper = symbol.upper()
@@ -475,6 +551,7 @@ async def asset_detail(
             "chart_resolution":  resolution,
             "eur_usd_rate":      fetch_eur_usd_rate() if tab == "performance" else None,
             "order_ctx":         order_ctx,
+            "auto_sma":          auto_sma,
         },
     )
 
@@ -494,6 +571,21 @@ class OrderRequest(BaseModel):
     sl_price: float | None = None
     limit_price: float | None = None
     testnet: bool = True
+
+
+@app.get("/asset/{symbol}/best-sma")
+async def best_sma_endpoint(
+    symbol: str,
+    sl_short: int = 10,
+    sl_long: int = 10,
+    pos: int = 100,
+) -> JSONResponse:
+    """Return the best (sma_low, sma_high) pair for the given symbol."""
+    try:
+        sma_low, sma_high = _find_best_sma(symbol, sl_short, sl_long, float(pos))
+        return JSONResponse({"sma": sma_low, "sma_high": sma_high})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/asset/{symbol}/order")

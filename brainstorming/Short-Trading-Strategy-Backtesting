@@ -63,3 +63,15 @@ Which thread pulls at you most?
 [ ] One note on scope: extending CG-backed tokens beyond 365 days requires CoinGecko Pro (days=1000+ returns 401 on the free tier). That's a natural candidate for a follow-up change if you want to go all the way to 2020 for SUI, HYPE etc.
 
 [x] Review the long strategy with sma-44. the trades with a win are always less then a 1$. Can we improve the exit strategy?
+
+[ ] Improvement: Optimize SL and TP %
+
+[ ] when selecting a ticker automatically update the best SMA
+
+[ ] under the chart place a table with the yearly profit and loss for long, short and sum of these two
+
+[ ] in the tables there wrong codes: i am seeing &#9660; and &#6820; in the dir column instead of the arrows
+
+/ospx-explore
+
+[ ] switch the data source from yahoo daily to eodhd hourly. there is a local service running at port 8001 for the data. use the endpoint for hourly data. if there is no endpoint let me know so i can let implement this.
