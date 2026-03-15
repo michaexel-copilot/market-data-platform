@@ -8,13 +8,15 @@ A web application for identifying and trading short opportunities on Hyperliquid
 
 1. [Interface Overview](#1-interface-overview)
 2. [Sidebar — Asset List](#2-sidebar--asset-list)
-3. [Chart & Trades Tab](#3-chart--trades-tab)
-4. [Performance Tab](#4-performance-tab)
-5. [Fundamentals Tab](#5-fundamentals-tab)
-6. [Place Order Tab](#6-place-order-tab)
-7. [Data Sources](#7-data-sources)
-8. [Keyboard Reference](#8-keyboard-reference)
-9. [Known Limitations](#9-known-limitations)
+3. [Fundamentals Panel](#3-fundamentals-panel)
+4. [Chart Panel](#4-chart-panel)
+5. [Strategy Controls Panel](#5-strategy-controls-panel)
+6. [Trades Panel](#6-trades-panel)
+7. [Performance Panel](#7-performance-panel)
+8. [Place Order Panel](#8-place-order-panel)
+9. [Data Sources](#9-data-sources)
+10. [Keyboard Reference](#10-keyboard-reference)
+11. [Known Limitations](#11-known-limitations)
 
 ---
 
@@ -25,9 +27,9 @@ Open the application at `http://localhost:8000`.
 The screen is divided into two panes:
 
 - **Left — Sidebar**: the asset list with filter, Favourites and Ignored panels, and the Testnet/Mainnet network toggle.
-- **Right — Detail pane**: charts, stats, and order forms for the selected asset.
+- **Right — Detail pane**: charts, stats, and order forms for the selected asset, organised as a **vertical accordion**. Each section can be expanded or collapsed independently by clicking its header.
 
-Click any asset in the sidebar to load its detail view.
+Click any asset in the sidebar to load its detail view. The **Fundamentals** and **Strategy Controls** panels open automatically; the rest start collapsed.
 
 ---
 
@@ -86,7 +88,24 @@ The asset count badge next to "Assets" shows the total number of items in the cu
 
 ---
 
-## 3. Chart & Trades Tab
+## 3. Fundamentals Panel
+
+Shows metadata for the selected asset assembled from CoinMarketCap and CoinGecko.
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| **Market Cap** | CoinMarketCap | Total market capitalisation in USD |
+| **Launched** | CoinMarketCap | Token launch date (YYYY-MM-DD) |
+| **ATH** | CoinGecko | All-time high price, the date it occurred, and % difference vs current price |
+| **ATL** | CoinGecko | All-time low price, the date it occurred, and % difference vs current price |
+| **OHLC Source** | Internal | Whether OHLCV data is fetched from EODHD, Yahoo Finance, or CoinGecko |
+| **Chain / Platform** | CoinMarketCap | Blockchain or platform the token lives on, with contract address if available |
+
+The asset name at the top is a clickable link to the CoinMarketCap page (when available).
+
+---
+
+## 4. Chart Panel
 
 ### Chart
 
@@ -103,7 +122,7 @@ When a trade is highlighted (see Highlighting below):
 - **Short trade**: blue crosshairs (dashed) mark the entry and orange crosshairs (dashed) mark the exit
 - **Long trade**: green crosshairs (dotted) mark the entry and red crosshairs (dotted) mark the exit
 
-Both highlights can be active simultaneously — switching sub-tabs does not clear the other strategy's crosshairs.
+Both highlights can be active simultaneously — switching between panels does not clear the other strategy's crosshairs.
 
 ### SMA Period LOW and SL Short % (left column)
 
@@ -157,6 +176,19 @@ Sets the hypothetical USD position size used to calculate P&L in the trade table
 - **Minimum**: $100, in steps of $100
 - Changing the value reloads the trade table
 
+---
+
+## 5. Strategy Controls Panel
+
+This panel (expanded by default) contains the SMA period spinners, stop-loss inputs, Position Size, the **Find Best SMA** button, and the short/long strategy summaries described in [Chart Panel](#4-chart-panel) above.
+
+---
+
+## 6. Trades Panel
+
+Shows all short and long trades from the last 12 months in the unified trade table described in [Chart Panel](#4-chart-panel) above. Collapsed by default; click the header to expand.
+
+---
 
 ### Short Strategy — How It Works
 
@@ -227,9 +259,9 @@ If no signals were found in the last 12 months, a message is displayed instead o
 
 ---
 
-## 4. Performance Tab
+## 7. Performance Panel
 
-Shows recent price statistics and an interactive candlestick chart.
+Shows recent price statistics and an interactive candlestick chart. Collapsed by default.
 
 ### Stats Table
 
@@ -258,7 +290,7 @@ Explains the chart line styles:
 
 An interactive price chart using **~90 days** of data at the selected resolution:
 
-- **Resolution toggle**: **1H** or **4H** (default 4H) bars. Switch using the buttons above the chart.
+- **Resolution toggle**: **1H** or **4H** (default 4H) bars. Switch using the buttons above the chart within this panel.
 - **Visible window**: the last **35 days** are shown by default on the x-axis
 - **Y-axis**: pinned so the **30D high sits at the 95% mark** and the **30D low sits at the 5% mark**, giving context to where the current price sits within the 30-day range
 - **Reference lines**: 30D, 7D, and 1D high (dashed) and low (dotted) are drawn as horizontal lines spanning their respective window
@@ -267,26 +299,9 @@ An interactive price chart using **~90 days** of data at the selected resolution
 
 ---
 
-## 5. Fundamentals Tab
+## 8. Place Order Panel
 
-Shows metadata for the selected asset assembled from CoinMarketCap and CoinGecko.
-
-| Field | Source | Description |
-|-------|--------|-------------|
-| **Market Cap** | CoinMarketCap | Total market capitalisation in USD |
-| **Launched** | CoinMarketCap | Token launch date (YYYY-MM-DD) |
-| **ATH** | CoinGecko | All-time high price, the date it occurred, and % difference vs current price |
-| **ATL** | CoinGecko | All-time low price, the date it occurred, and % difference vs current price |
-| **OHLC Source** | Internal | Whether OHLCV data is fetched from EODHD, Yahoo Finance, or CoinGecko |
-| **Chain / Platform** | CoinMarketCap | Blockchain or platform the token lives on, with contract address if available |
-
-The asset name at the top is a clickable link to the CoinMarketCap page (when available).
-
----
-
-## 6. Place Order Tab
-
-Places perpetual futures orders on Hyperliquid directly from the app.
+Places perpetual futures orders on Hyperliquid directly from the app. Collapsed by default.
 
 > ⚠️ **Warning**: When the sidebar is set to **Mainnet**, this form places real orders with real money. The order card is outlined in **red** as a reminder.
 
@@ -330,7 +345,7 @@ When leverage > 1×, the **levered gain** and **levered loss** percentages are s
 
 ---
 
-## 7. Data Sources
+## 9. Data Sources
 
 ### OHLCV Price Data
 
@@ -346,7 +361,7 @@ EODHD hourly candles are resampled to daily candles before use in charts and bac
 
 **K-prefix tokens** (KBONK, KPEPE, KSHIB, etc.) represent 1000 × the underlying coin. Prices are fetched from the underlying token and multiplied by 1000 automatically.
 
-The **OHLC Source** is shown on the Fundamentals tab.
+The **OHLC Source** is shown in the Fundamentals panel.
 
 ### EUR / USD Exchange Rate
 
@@ -354,7 +369,7 @@ Performance tab prices are converted to EUR using an exchange rate fetched once 
 
 ---
 
-## 8. Keyboard Reference
+## 10. Keyboard Reference
 
 ### Sidebar
 
@@ -367,7 +382,7 @@ Performance tab prices are converted to EUR using an exchange rate fetched once 
 | `Escape` | Clear the filter box and focus it |
 | `↓` (from filter box) | Move focus to the first visible asset |
 
-### SMA Period LOW / HIGH and SL Short % / SL Long % Spinners (Chart & Trades tab, spinner must be focused)
+### SMA Period LOW / HIGH and SL Short % / SL Long % Spinners (Strategy Controls panel, spinner must be focused)
 
 | Key | Change |
 |-----|--------|
@@ -380,11 +395,11 @@ Shortcuts apply independently to whichever spinner is focused. The same key bind
 
 ---
 
-## 9. Known Limitations
+## 11. Known Limitations
 
 - **Market orders**: Executed at the current best bid/ask. Actual fill price may differ from the displayed last close, especially in thin markets.
 - **CoinGecko OHLC**: The Performance chart shows a line (close-only) for CoinGecko-sourced assets. High/Low values in the stats table reflect CoinGecko's daily OHLC candles, which use a different aggregation method than exchange data.
-- **Assets with no price data**: If neither EODHD, Yahoo Finance, nor CoinGecko has data for an asset, a warning is shown in place of the chart. The Performance and Order tabs still function using other data sources.
+- **Assets with no price data**: If neither EODHD, Yahoo Finance, nor CoinGecko has data for an asset, a warning is shown in place of the chart. The Performance and Place Order panels still function using other data sources.
 - **Exchange rate**: The USD→EUR rate is refreshed once per day. Prices shown in EUR during the session reflect the rate at the time of the last refresh.
 - **Mainnet orders are irreversible**: Once confirmed, orders are sent directly to the Hyperliquid exchange. Always review the confirmation dialog before clicking Confirm.
 - **Testnet asset list**: The testnet list contains a subset of assets compared to mainnet. Not all mainnet assets are available for testnet trading.

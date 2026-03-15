@@ -5,50 +5,116 @@
     <small class="text-muted fs-5">({{ symbol }})</small>
   </h2>
 </div>
-<input type="hidden" id="tab-input" name="tab" value="{{ tab }}">
+<input type="hidden" id="strategy-tab-input" name="strategy_tab" value="{{ strategy_tab }}">
+<input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
 
-<!-- Tab selector -->
-<div class="btn-group mb-3" role="group" aria-label="Detail view tabs">
-  <button type="button"
-    class="btn btn-sm btn-outline-secondary{% if tab == 'chart' %} active{% endif %}"
-    hx-get="/asset/{{ symbol }}"
-    hx-target="#detail-pane"
-    hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input, #network-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-    hx-vals='{"tab": "chart"}'
-  >Chart &amp; Trades</button>
-  <button type="button"
-    class="btn btn-sm btn-outline-secondary{% if tab == 'performance' %} active{% endif %}"
-    hx-get="/asset/{{ symbol }}"
-    hx-target="#detail-pane"
-    hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input, #resolution-input, #network-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-    hx-vals='{"tab": "performance"}'
-  >Performance</button>
-  <button type="button"
-    class="btn btn-sm btn-outline-secondary{% if tab == 'fundamentals' %} active{% endif %}"
-    hx-get="/asset/{{ symbol }}"
-    hx-target="#detail-pane"
-    hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input, #network-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-    hx-vals='{"tab": "fundamentals"}'
-  >Fundamentals</button>
-  <button type="button"
-    class="btn btn-sm btn-outline-secondary{% if tab == 'order' %} active{% endif %}"
-    hx-get="/asset/{{ symbol }}"
-    hx-target="#detail-pane"
-    hx-swap="innerHTML"
-    hx-include="#sma-input, #pos-input, #network-input, #sma-high-input, #sl-short-input, #sl-long-input, #strategy-tab-input, #hl-short-input, #hl-long-input"
-    hx-vals='{"tab": "order"}'
-  >Place Order</button>
+<div class="accordion" id="detail-accordion">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-fundamentals">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-fundamentals" aria-expanded="true" aria-controls="collapse-fundamentals">
+        Fundamentals
+      </button>
+    </h2>
+    <div id="collapse-fundamentals" class="accordion-collapse collapse show" aria-labelledby="heading-fundamentals">
+      <div class="accordion-body">
+<div class="row g-3 mt-1">
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Market Cap</div>
+        <div class="fw-semibold fs-6">
+          {% if market_cap_usd %}
+            ${{ "{:,.2f}".format(market_cap_usd / 1e9) }}B
+          {% else %}
+            &mdash;
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:180px">
+      <div class="card-body py-2 px-3">
+        <table style="font-size:0.82rem; line-height:1.6; border-collapse:collapse">
+          <tr>
+            <td class="text-muted pe-2">Launched</td>
+            <td class="fw-semibold">
+              {% if info.date_launched %}{{ info.date_launched[:10] }}{% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted pe-2">ATH</td>
+            <td class="fw-semibold">
+              {% if cg.ath %}
+                ${{ "{:,.4g}".format(cg.ath) }}
+                <span class="text-muted" style="font-size:0.72rem"> {{ cg.ath_date }}</span>
+                {% if last_close %}
+                <br/><span class="text-muted" style="font-size:0.72rem">
+                  {{ "{:+.1f}%".format((last_close - cg.ath) / cg.ath * 100) }} vs now
+                </span>
+                {% endif %}
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted pe-2">ATL</td>
+            <td class="fw-semibold">
+              {% if cg.atl %}
+                ${{ "{:,.4g}".format(cg.atl) }}
+                <span class="text-muted" style="font-size:0.72rem"> {{ cg.atl_date }}</span>
+                {% if last_close %}
+                <br/><span class="text-muted" style="font-size:0.72rem">
+                  {{ "{:+.1f}%".format((last_close - cg.atl) / cg.atl * 100) }} vs now
+                </span>
+                {% endif %}
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="card shadow-sm" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">OHLC Source</div>
+        <div class="fw-semibold fs-6">{{ data_source }}</div>
+      </div>
+    </div>
+  </div>
+
+  {% if info.platform %}
+  <div class="col-auto">
+    <div class="card shadow-sm border-info" style="min-width:160px">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Chain / Platform</div>
+        <div class="fw-semibold fs-6">{{ info.platform }}</div>
+        {% if info.token_address %}
+        <div class="text-muted" style="font-size:0.65rem; word-break:break-all">
+          {{ info.token_address }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 
-{% if tab == "chart" %}
-<input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
-<!-- Two-column: chart (left) + strategy panel (right) -->
-<div class="d-flex gap-3 align-items-start mt-2">
-
-  <!-- Chart -->
+      </div>
+    </div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-chart">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-chart" aria-expanded="false" aria-controls="collapse-chart">
+        Chart &amp; Trades: Chart
+      </button>
+    </h2>
+    <div id="collapse-chart" class="accordion-collapse collapse" aria-labelledby="heading-chart">
+      <div class="accordion-body">
   <div style="flex: 0 0 63%; min-width: 0">
     {% if chart_filename %}
     <img
@@ -62,7 +128,17 @@
     {% endif %}
   </div>
 
-  <!-- Strategy panel -->
+      </div>
+    </div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-strategy-controls">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-strategy-controls" aria-expanded="true" aria-controls="collapse-strategy-controls">
+        Chart &amp; Trades: Strategy Controls
+      </button>
+    </h2>
+    <div id="collapse-strategy-controls" class="accordion-collapse collapse show" aria-labelledby="heading-strategy-controls">
+      <div class="accordion-body">
   <div style="flex: 1; min-width: 0">
 
     <!-- SMA spinners + SL fields: side-by-side layout -->
@@ -81,7 +157,7 @@
             hx-get="/asset/{{ symbol }}"
             hx-target="#detail-pane"
             hx-swap="innerHTML"
-            hx-include="#pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
+            hx-include="#pos-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
             name="sma"
             hx-trigger="change"
           />
@@ -115,7 +191,7 @@
             hx-get="/asset/{{ symbol }}"
             hx-target="#detail-pane"
             hx-swap="innerHTML"
-            hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-long-input, #hl-short-input, #hl-long-input"
+            hx-include="#sma-input, #pos-input, #sma-high-input, #sl-long-input, #hl-short-input, #hl-long-input"
             name="sl_short"
             hx-trigger="change"
           />
@@ -153,7 +229,7 @@
             hx-get="/asset/{{ symbol }}"
             hx-target="#detail-pane"
             hx-swap="innerHTML"
-            hx-include="#pos-input, #tab-input, #sma-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
+            hx-include="#pos-input, #sma-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
             name="sma_high"
             hx-trigger="change"
           />
@@ -187,7 +263,7 @@
             hx-get="/asset/{{ symbol }}"
             hx-target="#detail-pane"
             hx-swap="innerHTML"
-            hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #hl-short-input, #hl-long-input"
+            hx-include="#sma-input, #pos-input, #sma-high-input, #sl-short-input, #hl-short-input, #hl-long-input"
             name="sl_long"
             hx-trigger="change"
           />
@@ -226,7 +302,7 @@
         hx-get="/asset/{{ symbol }}"
         hx-target="#detail-pane"
         hx-swap="innerHTML"
-        hx-include="#sma-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
+        hx-include="#sma-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
         hx-trigger="change"
       />
     </div>
@@ -303,6 +379,18 @@
       </div>
     </div>
 
+  </div>
+      </div>
+    </div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-trades">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-trades" aria-expanded="false" aria-controls="collapse-trades">
+        Chart &amp; Trades: Trades Table
+      </button>
+    </h2>
+    <div id="collapse-trades" class="accordion-collapse collapse" aria-labelledby="heading-trades">
+      <div class="accordion-body">
     <!-- Unified trade table (short + long, sorted by entry date desc) -->
     {% set all_trades = [] %}
     {% for t in trades %}
@@ -341,7 +429,7 @@
           hx-get="/asset/{{ symbol }}"
           hx-target="#detail-pane"
           hx-swap="innerHTML"
-          hx-include="#sma-input, #pos-input, #tab-input, #sma-high-input, #sl-short-input, #sl-long-input"
+          hx-include="#sma-input, #pos-input, #sma-high-input, #sl-short-input, #sl-long-input"
           {% if dir == "short" %}
           hx-vals='{"highlight": "{{ trade.idx }}", "hl_long": ""}'
           {% else %}
@@ -392,19 +480,18 @@
     {% else %}
     <p class="text-muted small mt-2">No trade signals in the last 12 months.</p>
     {% endif %}
-
+      </div>
+    </div>
   </div>
-</div>
-{% elif tab == "performance" %}
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-performance">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-performance" aria-expanded="false" aria-controls="collapse-performance">
+        Performance
+      </button>
+    </h2>
+    <div id="collapse-performance" class="accordion-collapse collapse" aria-labelledby="heading-performance">
+      <div class="accordion-body">
 <!-- Hidden inputs so tab-switch back to chart preserves all values -->
-<input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
-<input type="hidden" id="sma-high-input" name="sma_high" value="{{ sma_high }}">
-<input type="hidden" id="sl-short-input" name="sl_short" value="{{ sl_short }}">
-<input type="hidden" id="sl-long-input" name="sl_long" value="{{ sl_long }}">
-<input type="hidden" id="strategy-tab-input" name="strategy_tab" value="{{ strategy_tab }}">
-<input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
-<input type="hidden" id="hl-long-input" name="hl_long" value="{{ hl_long if hl_long is not none else '' }}">
-<input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
 <!-- Performance stats table -->
 <div class="mt-1">
   {% if perf_rows %}
@@ -608,111 +695,17 @@
   {% endif %}
 </div>
 
-{% elif tab == "fundamentals" %}
-<input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
-<input type="hidden" id="sma-high-input" name="sma_high" value="{{ sma_high }}">
-<input type="hidden" id="sl-short-input" name="sl_short" value="{{ sl_short }}">
-<input type="hidden" id="sl-long-input" name="sl_long" value="{{ sl_long }}">
-<input type="hidden" id="strategy-tab-input" name="strategy_tab" value="{{ strategy_tab }}">
-<input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
-<input type="hidden" id="hl-long-input" name="hl_long" value="{{ hl_long if hl_long is not none else '' }}">
-<input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
-<div class="row g-3 mt-1">
-
-  <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:160px">
-      <div class="card-body py-2 px-3">
-        <div class="text-muted small">Market Cap</div>
-        <div class="fw-semibold fs-6">
-          {% if market_cap_usd %}
-            ${{ "{:,.2f}".format(market_cap_usd / 1e9) }}B
-          {% else %}
-            &mdash;
-          {% endif %}
-        </div>
       </div>
     </div>
   </div>
-
-  <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:180px">
-      <div class="card-body py-2 px-3">
-        <table style="font-size:0.82rem; line-height:1.6; border-collapse:collapse">
-          <tr>
-            <td class="text-muted pe-2">Launched</td>
-            <td class="fw-semibold">
-              {% if info.date_launched %}{{ info.date_launched[:10] }}{% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-          <tr>
-            <td class="text-muted pe-2">ATH</td>
-            <td class="fw-semibold">
-              {% if cg.ath %}
-                ${{ "{:,.4g}".format(cg.ath) }}
-                <span class="text-muted" style="font-size:0.72rem"> {{ cg.ath_date }}</span>
-                {% if last_close %}
-                <br/><span class="text-muted" style="font-size:0.72rem">
-                  {{ "{:+.1f}%".format((last_close - cg.ath) / cg.ath * 100) }} vs now
-                </span>
-                {% endif %}
-              {% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-          <tr>
-            <td class="text-muted pe-2">ATL</td>
-            <td class="fw-semibold">
-              {% if cg.atl %}
-                ${{ "{:,.4g}".format(cg.atl) }}
-                <span class="text-muted" style="font-size:0.72rem"> {{ cg.atl_date }}</span>
-                {% if last_close %}
-                <br/><span class="text-muted" style="font-size:0.72rem">
-                  {{ "{:+.1f}%".format((last_close - cg.atl) / cg.atl * 100) }} vs now
-                </span>
-                {% endif %}
-              {% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-auto">
-    <div class="card shadow-sm" style="min-width:160px">
-      <div class="card-body py-2 px-3">
-        <div class="text-muted small">OHLC Source</div>
-        <div class="fw-semibold fs-6">{{ data_source }}</div>
-      </div>
-    </div>
-  </div>
-
-  {% if info.platform %}
-  <div class="col-auto">
-    <div class="card shadow-sm border-info" style="min-width:160px">
-      <div class="card-body py-2 px-3">
-        <div class="text-muted small">Chain / Platform</div>
-        <div class="fw-semibold fs-6">{{ info.platform }}</div>
-        {% if info.token_address %}
-        <div class="text-muted" style="font-size:0.65rem; word-break:break-all">
-          {{ info.token_address }}
-        </div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-</div>
-
-{% elif tab == "order" %}
-<input type="hidden" id="sma-input" name="sma" value="{{ sma_period }}">
-<input type="hidden" id="sma-high-input" name="sma_high" value="{{ sma_high }}">
-<input type="hidden" id="sl-short-input" name="sl_short" value="{{ sl_short }}">
-<input type="hidden" id="sl-long-input" name="sl_long" value="{{ sl_long }}">
-<input type="hidden" id="strategy-tab-input" name="strategy_tab" value="{{ strategy_tab }}">
-<input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
-<input type="hidden" id="hl-long-input" name="hl_long" value="{{ hl_long if hl_long is not none else '' }}">
-<input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-order">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-order" aria-expanded="false" aria-controls="collapse-order">
+        Place Order
+      </button>
+    </h2>
+    <div id="collapse-order" class="accordion-collapse collapse" aria-labelledby="heading-order">
+      <div class="accordion-body">
 
 <div id="order-form-card" class="card shadow-sm mt-2" style="max-width:540px">
   <div class="card-body">
@@ -1109,4 +1102,8 @@
 })();
 </script>
 
-{% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>

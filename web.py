@@ -439,49 +439,45 @@ async def asset_detail(
     else:
         chart_filename = _get_or_create_chart(sym_upper, sma, sma_high, sl_short, sl_long)
 
-    # Performance data — only fetched when the Performance tab is active
+    # Performance data for the accordion Performance panel
     import json as _json
     perf_rows: list[dict] = []
     candles_4h_json: str = "[]"
-    if tab == "performance":
-        try:
-            candles_5y = fetch_5y_candles(sym_upper)
-            perf_rows  = compute_perf_rows(candles_5y)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[web] perf data failed for {sym_upper}: {exc}")
-        try:
-            candles_4h = fetch_4h_candles(sym_upper, resolution=resolution)
-            candles_4h_json = _json.dumps([
-                {
-                    "time":  int(c["date"].timestamp()),
-                    "open":  c["open"],
-                    "high":  c["high"],
-                    "low":   c["low"],
-                    "close": c["close"],
-                }
-                for c in candles_4h
-            ])
-        except Exception as exc:  # noqa: BLE001
-            print(f"[web] perf chart failed for {sym_upper}: {exc}")
+    try:
+        candles_5y = fetch_5y_candles(sym_upper)
+        perf_rows = compute_perf_rows(candles_5y)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] perf data failed for {sym_upper}: {exc}")
+    try:
+        candles_4h = fetch_4h_candles(sym_upper, resolution=resolution)
+        candles_4h_json = _json.dumps([
+            {
+                "time":  int(c["date"].timestamp()),
+                "open":  c["open"],
+                "high":  c["high"],
+                "low":   c["low"],
+                "close": c["close"],
+            }
+            for c in candles_4h
+        ])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] perf chart failed for {sym_upper}: {exc}")
 
-    # Order tab — 30D H/L for TP/SL defaults + pairs metadata
+    # Order context for the accordion Place Order panel
     order_ctx: dict | None = None
-    if tab == "order":
-        pair_meta = get_pair_meta(sym_upper, testnet=(network == "testnet"))
-        try:
-            candles_5y_ord = fetch_5y_candles(sym_upper)
-            perf_ord = compute_perf_rows(candles_5y_ord)
-            row_30d = next((r for r in perf_ord if r["label"] == "30D"), None)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[web] order context 30D fetch failed for {sym_upper}: {exc}")
-            row_30d = None
-        order_ctx = {
-            "high_30d":     row_30d["high"] if row_30d else None,
-            "low_30d":      row_30d["low"]  if row_30d else None,
-            "max_leverage": int(pair_meta.max_leverage) if pair_meta else 10,
-            "lot_size":     pair_meta.lot_size          if pair_meta else 1.0,
-            "hl_symbol":    pair_meta.hl_symbol         if pair_meta else f"{sym_upper}/USDC:USDC",
-        }
+    pair_meta = get_pair_meta(sym_upper, testnet=(network == "testnet"))
+    try:
+        row_30d = next((r for r in perf_rows if r["label"] == "30D"), None)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] order context 30D fetch failed for {sym_upper}: {exc}")
+        row_30d = None
+    order_ctx = {
+        "high_30d":     row_30d["high"] if row_30d else None,
+        "low_30d":      row_30d["low"]  if row_30d else None,
+        "max_leverage": int(pair_meta.max_leverage) if pair_meta else 10,
+        "lot_size":     pair_meta.lot_size          if pair_meta else 1.0,
+        "hl_symbol":    pair_meta.hl_symbol         if pair_meta else f"{sym_upper}/USDC:USDC",
+    }
 
     # Format trades for template (convert datetimes to strings)
     last_close = candles[-1]["close"] if candles else None
@@ -549,7 +545,7 @@ async def asset_detail(
             "perf_rows":         perf_rows,
             "candles_4h_json":   candles_4h_json,
             "chart_resolution":  resolution,
-            "eur_usd_rate":      fetch_eur_usd_rate() if tab == "performance" else None,
+            "eur_usd_rate":      fetch_eur_usd_rate(),
             "order_ctx":         order_ctx,
             "auto_sma":          auto_sma,
         },
