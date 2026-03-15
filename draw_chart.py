@@ -85,6 +85,9 @@ EODHD_BASE_URL = "http://localhost:8010"
 EODHD_SYMBOL_MAP: dict[str, str] = {
     "BTC":  "bitcoin",
     "ETH":  "ethereum",
+    "BNB":  "bnb",
+    "XRP":  "xrp",
+    "SOL":  "solana",
     "ADA":  "cardano",
     "ALGO": "algorand",
     "SKY":  "sky",
