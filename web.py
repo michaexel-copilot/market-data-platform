@@ -174,9 +174,9 @@ ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Best-SMA optimization cache  (keyed by (symbol_upper, date))
+# Out-of-sample validation cache (keyed by (symbol_upper, sma_low, sma_high, sl_short, sl_long, pos_usd))
 # ---------------------------------------------------------------------------
-BEST_SMA_CACHE: dict[tuple[str, date], tuple[int, int]] = {}
+OOS_CACHE: dict[tuple, dict] = {}
 
 _BEST_SMA_MIN = 3
 _BEST_SMA_MAX = 50
@@ -187,12 +187,10 @@ def _find_best_sma(
     sl_short: float,
     sl_long: float,
     pos: float,
-) -> tuple[int, int]:
-    """Brute-force search over SMA LOW × SMA HIGH ∈ [3,50]. Returns (sma_low, sma_high)."""
+) -> tuple[int, int, list, int]:
+    """Brute-force search over SMA LOW × SMA HIGH ∈ [3,50] using the first 80% of candles.
+    Returns (sma_low, sma_high, full_scaled_candles, split_idx)."""
     sym_upper = symbol.upper()
-    cache_key = (sym_upper, date.today())
-    if cache_key in BEST_SMA_CACHE:
-        return BEST_SMA_CACHE[cache_key]
 
     # Fetch OHLCV once (disk-cached per day) and scale prices.
     source_key, multiplier = resolve_source_key(sym_upper)
@@ -203,28 +201,32 @@ def _find_best_sma(
              "low": c["low"] * multiplier, "close": c["close"] * multiplier}
             for c in candles
         ]
-    closes = [c["close"] for c in candles]
-    highs  = [c["high"]  for c in candles]
-    lows   = [c["low"]   for c in candles]
+
+    # Use only the first 80% of candles for the optimisation grid search.
+    split_idx = int(len(candles) * 0.8)
+    train_candles = candles[:split_idx]
+    closes = [c["close"] for c in train_candles]
+    highs  = [c["high"]  for c in train_candles]
+    lows   = [c["low"]   for c in train_candles]
 
     best_score = float("-inf")
     best_pair = (_BEST_SMA_MIN, _BEST_SMA_MIN)
 
-    # Pre-compute all SMA arrays for the search range.
+    # Pre-compute all SMA arrays for the search range (training slice only).
     sma_low_arrays:  dict[int, list] = {p: _sma(lows, p)   for p in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1)}
     sma_high_arrays: dict[int, list] = {p: _sma(highs, p)  for p in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1)}
 
     for sma_low in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1):
         sma_low_vals = sma_low_arrays[sma_low]
         short_trades = backtest_short_strategy(
-            candles, sma_low_vals,
+            train_candles, sma_low_vals,
             position_size_usd=pos,
             stop_loss_pct=sl_short / 100.0,
         )
         for sma_high in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1):
             sma_high_vals = sma_high_arrays[sma_high]
             long_trades = backtest_long_strategy(
-                candles, sma_high_vals,
+                train_candles, sma_high_vals,
                 position_size_usd=pos,
                 stop_loss_pct=sl_long / 100.0,
             )
@@ -245,8 +247,7 @@ def _find_best_sma(
                 best_score = score
                 best_pair = (sma_low, sma_high)
 
-    BEST_SMA_CACHE[cache_key] = best_pair
-    return best_pair
+    return best_pair[0], best_pair[1], candles, split_idx
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +521,9 @@ async def asset_detail(
         for i, t in enumerate(raw_long_trades)
     ]
 
+    # Look up out-of-sample validation results produced by a prior best-SMA search.
+    oos_data = OOS_CACHE.get((sym_upper, sma, sma_high, sl_short, sl_long, pos))
+
     return TEMPLATES.TemplateResponse(
         "asset_detail.html",
         {
@@ -548,6 +552,12 @@ async def asset_detail(
             "eur_usd_rate":      fetch_eur_usd_rate(),
             "order_ctx":         order_ctx,
             "auto_sma":          auto_sma,
+            "oos_short_summary": oos_data["short_summary"]   if oos_data else None,
+            "oos_long_summary":  oos_data["long_summary"]    if oos_data else None,
+            "oos_train_from":    oos_data["train_date_from"] if oos_data else None,
+            "oos_train_to":      oos_data["train_date_to"]   if oos_data else None,
+            "oos_val_from":      oos_data["val_date_from"]   if oos_data else None,
+            "oos_val_to":        oos_data["val_date_to"]     if oos_data else None,
         },
     )
 
@@ -578,7 +588,38 @@ async def best_sma_endpoint(
 ) -> JSONResponse:
     """Return the best (sma_low, sma_high) pair for the given symbol."""
     try:
-        sma_low, sma_high = _find_best_sma(symbol, sl_short, sl_long, float(pos))
+        sma_low, sma_high, candles_scaled, split_idx = _find_best_sma(symbol, sl_short, sl_long, float(pos))
+
+        # Run validation backtest on the held-out 20% slice.
+        val_candles   = candles_scaled[split_idx:]
+        train_candles = candles_scaled[:split_idx]
+        val_sma_lows  = _sma([c["low"]  for c in val_candles], sma_low)
+        val_sma_highs = _sma([c["high"] for c in val_candles], sma_high)
+        val_short = backtest_short_strategy(
+            val_candles, val_sma_lows,
+            position_size_usd=float(pos), stop_loss_pct=sl_short / 100.0,
+        )
+        val_long = backtest_long_strategy(
+            val_candles, val_sma_highs,
+            position_size_usd=float(pos), stop_loss_pct=sl_long / 100.0,
+        )
+
+        def _oos_summary(trades: list) -> dict:
+            closed = [t for t in trades if not t["is_open"] and t["pnl"] is not None]
+            total  = sum(t["pnl"] for t in closed)
+            count  = len(closed)
+            return {"count": count, "total_pnl": total, "avg_pnl": total / count if count else None}
+
+        oos_data = {
+            "short_summary":   _oos_summary(val_short),
+            "long_summary":    _oos_summary(val_long),
+            "train_date_from": str(train_candles[0]["date"])  if train_candles else "",
+            "train_date_to":   str(train_candles[-1]["date"]) if train_candles else "",
+            "val_date_from":   str(val_candles[0]["date"])    if val_candles else "",
+            "val_date_to":     str(val_candles[-1]["date"])   if val_candles else "",
+        }
+        OOS_CACHE[(symbol.upper(), sma_low, sma_high, sl_short, sl_long, pos)] = oos_data
+
         return JSONResponse({"sma": sma_low, "sma_high": sma_high})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=500)

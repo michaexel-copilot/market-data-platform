@@ -163,10 +163,12 @@ The right column contains two controls for the **Long Strategy**:
 The **Find Best SMA** button searches all SMA LOW × SMA HIGH period combinations in the range 3–50 and selects the pair that maximises the combined average P&L per closed trade across both strategies.
 
 - **Auto-runs** when you select a ticker — no manual click needed
-- Results are **cached** per symbol for the current day; repeated clicks use the cached result instantly
+- The search uses only the **first 80 % of available candles** (the *training window*) to score SMA pairs, avoiding overfitting to more recent data
+- Results are **always freshly calculated** — no caching — so you get an accurate result reflecting the current candle set
 - After the calculation completes, **the SMA Period LOW and SMA Period HIGH spinners are updated** to the winning values and the chart reloads automatically
 - You can also click the button manually at any time (e.g. after changing SL %)
 - A spinner indicator is shown on the button while the calculation runs (may take a few seconds)
+- Once complete, the strategy summary shows two clearly labelled sections (see [Strategy Summary](#strategy-summary) below)
 
 ### Position Size
 
@@ -181,6 +183,15 @@ Sets the hypothetical USD position size used to calculate P&L in the trade table
 ## 5. Strategy Controls Panel
 
 This panel (expanded by default) contains the SMA period spinners, stop-loss inputs, Position Size, the **Find Best SMA** button, and the short/long strategy summaries described in [Chart Panel](#4-chart-panel) above.
+
+### Strategy Summary
+
+Above the Trades table, two summary rows show P&L statistics for the current SMA and stop-loss settings:
+
+- **In-Sample (Optimisation)** — badge shown in grey when Find Best SMA has run. Displays the date range of the training window (first 80 % of candles used to select the best SMA pair). Shows closed trade count, total P&L, and average P&L per trade for the Short and Long strategies over that window.
+- **Out-of-Sample (Validation)** — badge shown in blue, separated by a horizontal rule. Displays the date range of the held-out validation window (last 20 % of candles). Shows the same statistics but for candles the optimiser never saw — this is the honest estimate of how the selected SMA performs on new data.
+
+When SMA values are set manually (without clicking Find Best SMA), only the overall summary is shown without the in-sample/out-of-sample split.
 
 ---
 

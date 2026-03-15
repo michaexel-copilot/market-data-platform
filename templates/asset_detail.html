@@ -356,6 +356,14 @@
     {% endfor %}
     {% set s_avg = (s_total.value / s_total.count) if s_total.count > 0 else 0 %}
     {% set l_avg = (l_total.value / l_total.count) if l_total.count > 0 else 0 %}
+
+    <!-- In-sample summary (full history / all candles) -->
+    {% if oos_train_from %}
+    <div class="text-muted mb-1" style="font-size:0.78rem">
+      <span class="badge bg-secondary me-1">In-Sample (Optimisation)</span>
+      {{ oos_train_from }} &rarr; {{ oos_train_to }}
+    </div>
+    {% endif %}
     <div class="d-flex gap-3 mb-2 flex-wrap">
       <div class="border rounded px-3 py-1" style="background:#fff5f5; font-size:0.85rem">
         <span class="fw-semibold text-danger">&#9660; Short</span>
@@ -378,6 +386,45 @@
         <span class="{% if l_avg >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(l_avg) }}</span>
       </div>
     </div>
+
+    <!-- Out-of-sample (validation) summary — only shown after "Find Best SMA" -->
+    {% if oos_short_summary %}
+    <hr class="my-2">
+    <div class="text-muted mb-1" style="font-size:0.78rem">
+      <span class="badge bg-info text-dark me-1">Out-of-Sample (Validation)</span>
+      {{ oos_val_from }} &rarr; {{ oos_val_to }}
+    </div>
+    <div class="d-flex gap-3 mb-2 flex-wrap">
+      <div class="border rounded px-3 py-1" style="background:#fff0e0; font-size:0.85rem">
+        <span class="fw-semibold text-danger">&#9660; Short</span>
+        &nbsp;SMA-{{ sma_period }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_short }}%
+        &nbsp;&nbsp;
+        <span class="text-muted">{{ oos_short_summary.count }} trade{{ "s" if oos_short_summary.count != 1 }}</span>
+        &nbsp;
+        <span class="fw-semibold {% if oos_short_summary.total_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(oos_short_summary.total_pnl) }}</span>
+        &nbsp;
+        {% if oos_short_summary.avg_pnl is not none %}
+        <span class="{% if oos_short_summary.avg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(oos_short_summary.avg_pnl) }}</span>
+        {% else %}
+        <span class="text-muted">Avg&nbsp;&mdash;</span>
+        {% endif %}
+      </div>
+      <div class="border rounded px-3 py-1" style="background:#e0f0ff; font-size:0.85rem">
+        <span class="fw-semibold text-success">&#9650; Long</span>
+        &nbsp;SMA-{{ sma_high }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_long }}%
+        &nbsp;&nbsp;
+        <span class="text-muted">{{ oos_long_summary.count }} trade{{ "s" if oos_long_summary.count != 1 }}</span>
+        &nbsp;
+        <span class="fw-semibold {% if oos_long_summary.total_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(oos_long_summary.total_pnl) }}</span>
+        &nbsp;
+        {% if oos_long_summary.avg_pnl is not none %}
+        <span class="{% if oos_long_summary.avg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(oos_long_summary.avg_pnl) }}</span>
+        {% else %}
+        <span class="text-muted">Avg&nbsp;&mdash;</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
 
   </div>
       </div>

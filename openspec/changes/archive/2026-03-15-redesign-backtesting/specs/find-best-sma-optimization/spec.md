@@ -1,21 +1,4 @@
-## ADDED Requirements
-
-### Requirement: Find Best SMA button triggers optimization search
-A **"Find Best SMA"** button SHALL be present on the Chart & Trades tab, adjacent to the SMA spinners. Clicking it SHALL send an HTMX GET request to `/asset/{symbol}/best-sma` passing the current `sl_short`, `sl_long`, `pos`, and `network` values. While the request is in flight the button SHALL show a loading indicator.
-
-#### Scenario: Button is present on chart tab
-- **WHEN** the Chart & Trades tab is active
-- **THEN** a "Find Best SMA" button SHALL be visible near the SMA spinners
-
-#### Scenario: Button triggers HTMX request
-- **WHEN** the user clicks "Find Best SMA"
-- **THEN** an HTMX GET request SHALL be sent to `/asset/{symbol}/best-sma` with current `sl_short`, `sl_long`, `pos`, and `network` query parameters
-
-#### Scenario: Loading indicator during search
-- **WHEN** the HTMX request is in flight
-- **THEN** the button SHALL display a loading indicator (spinner or disabled state)
-
----
+## MODIFIED Requirements
 
 ### Requirement: Backend endpoint searches SMA grid
 The `/asset/{symbol}/best-sma` endpoint SHALL iterate SMA LOW ∈ [3, 50] and SMA HIGH ∈ [3, 50] (step 1, inclusive), run `backtest_short_strategy` and `backtest_long_strategy` for each combination, and score each pair as the **average closed-trade P&L per trade** across both strategies combined.
@@ -40,9 +23,8 @@ The grid search SHALL use only the **first 80 % of available OHLCV candles** (ch
 
 ---
 
-### Requirement: Spinner values updated after search
-The HTMX response from `/asset/{symbol}/best-sma` SHALL cause the main `#detail-pane` to reload with the winning `sma` and `sma_high` values applied, so both spinners and the chart reflect the optimized pair.
+## REMOVED Requirements
 
-#### Scenario: Detail pane reloads with optimized SMA values
-- **WHEN** the best-sma response is received
-- **THEN** the `#detail-pane` SHALL reload at `/asset/{symbol}` with `sma=<winning_low>&sma_high=<winning_high>` (plus all other current parameters preserved)
+### Requirement: Search result cached in-process
+**Reason**: The 80/20 split makes the result dependent on the daily growing candle set; a same-day cached result from a prior fetch would use a different training boundary. Removal ensures freshness without complexity.
+**Migration**: No migration needed — this was an internal optimisation only. Callers (the HTMX route) are unaffected.
