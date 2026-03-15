@@ -70,11 +70,11 @@ Which thread pulls at you most?
 
 [ ] under the chart place a table with the yearly profit and loss for long, short and sum of these two
 
-[ ] in the tables there wrong codes: i am seeing &#9660; and &#6820; in the dir column instead of the arrows
+[x] in the tables there wrong codes: i am seeing &#9660; and &#6820; in the dir column instead of the arrows
 
 /ospx-explore
 
-[ ] switch the data source from yahoo daily to eodhd hourly. there is a local service running at port 8010 for the data. use this endpoint: http://localhost:8010/docs#/ohlcv/get_ohlcv_v1_ohlcv__symbol__get 
+[x] switch the data source from yahoo daily to eodhd hourly. there is a local service running at port 8010 for the data. use this endpoint: http://localhost:8010/docs#/ohlcv/get_ohlcv_v1_ohlcv__symbol__get 
 
 [ ] BUG: Auto Update best sma funktioniert nicht. Andere Strategie: Wenn die Werte nicht im Cache muss der Button manuell gedrückt werden. Wenn die Daten im cache sind werden die besten SMA-Werte dem Tab übergeben (statt default Wert 7)
 
