@@ -1,0 +1,39 @@
+# switch data source to hourly data
+
+switch the data source from yahoo daily to eodhd hourly. there is a local service running at port 8010 for the data. use this endpoint: http://localhost:8010/docs#/ohlcv/get_ohlcv_v1_ohlcv__symbol__get 
+
+## Step 1
+[x] /clear # clears the context window
+[x] /ospx-propose switch data source to hourly data
+
+### Rückfragen KI (Claude Sonnet 4.6)
+[x] $rueckfragen von ki$
+
+### Review
+[x] Review Proposal durchgeführt.
+[x] Alle Aspekte berücksichtigt
+
+## Step 2
+[°] /ospx-apply
+
+### Rückfragen
+[ ] /ask mode: Have you dismantled the old data supply system?
+
+## Step 3 archive
+[x] /ospx-archive switch data source to hourly data
+[x] update documentation
+
+## Step 4 Nacharbeiten
+[x] Review aller Tasks aus Step 0
+[x] git commit mit passendem Kommentar # manuell
+
+## Step 5 Definition of Done
+
+[x] Alle Workflow Schritte durchlaufen:
+[x] Review durchgeführt
+[x] git commit mit passendem Kommentar # manuell
+[x] Dokumentation aktualisiert 
+[x] FAQ ergänzt
+
+
+

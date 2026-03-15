@@ -262,7 +262,7 @@ An interactive price chart using **~90 days** of data at the selected resolution
 - **Visible window**: the last **35 days** are shown by default on the x-axis
 - **Y-axis**: pinned so the **30D high sits at the 95% mark** and the **30D low sits at the 5% mark**, giving context to where the current price sits within the 30-day range
 - **Reference lines**: 30D, 7D, and 1D high (dashed) and low (dotted) are drawn as horizontal lines spanning their respective window
-- **Candlestick mode**: available when data comes from Yahoo Finance (full OHLCV). CoinGecko-sourced assets show a line chart instead (close-only data)
+- **Candlestick mode**: available when data comes from EODHD or Yahoo Finance (full OHLCV with real H/L). CoinGecko-sourced assets show a line chart instead (close-only data)
 - The chart is interactive — hover to see exact values on the crosshair. Pan and zoom with the mouse wheel or by dragging
 
 ---
@@ -277,7 +277,7 @@ Shows metadata for the selected asset assembled from CoinMarketCap and CoinGecko
 | **Launched** | CoinMarketCap | Token launch date (YYYY-MM-DD) |
 | **ATH** | CoinGecko | All-time high price, the date it occurred, and % difference vs current price |
 | **ATL** | CoinGecko | All-time low price, the date it occurred, and % difference vs current price |
-| **OHLC Source** | Internal | Whether OHLCV data is fetched from Yahoo Finance or CoinGecko |
+| **OHLC Source** | Internal | Whether OHLCV data is fetched from EODHD, Yahoo Finance, or CoinGecko |
 | **Chain / Platform** | CoinMarketCap | Blockchain or platform the token lives on, with contract address if available |
 
 The asset name at the top is a clickable link to the CoinMarketCap page (when available).
@@ -338,8 +338,11 @@ Price data is fetched automatically and cached to disk for the current day.
 
 | Source | Used when |
 |--------|-----------|
-| **Yahoo Finance** | Default for most assets. Provides full OHLCV (open, high, low, close, volume). |
-| **CoinGecko** | For assets not listed on Yahoo Finance (e.g. HYPE, SUI, MNT). Provides OHLC data; the Performance chart shows a line chart since high/low data may differ. |
+| **EODHD** (local service) | Primary source for supported assets (currently BTC, ETH, ADA, ALGO, SKY). Provides true hourly OHLCV data from Oct 2020 with real high/low ranges. No external API calls — served by a local service at `http://localhost:8010`. |
+| **Yahoo Finance** | Default for assets not covered by EODHD. Provides full daily OHLCV (open, high, low, close, volume) from 2020-01-01. |
+| **CoinGecko** | For assets not listed on Yahoo Finance and not covered by EODHD (e.g. HYPE, SUI, MNT). Provides close-only daily data; the Performance chart shows a line chart. |
+
+EODHD hourly candles are resampled to daily candles before use in charts and backtesting, so the interface remains consistent across all sources. The 4H and 1H resolution in the Performance tab uses native EODHD hourly data for covered symbols.
 
 **K-prefix tokens** (KBONK, KPEPE, KSHIB, etc.) represent 1000 × the underlying coin. Prices are fetched from the underlying token and multiplied by 1000 automatically.
 
@@ -381,7 +384,7 @@ Shortcuts apply independently to whichever spinner is focused. The same key bind
 
 - **Market orders**: Executed at the current best bid/ask. Actual fill price may differ from the displayed last close, especially in thin markets.
 - **CoinGecko OHLC**: The Performance chart shows a line (close-only) for CoinGecko-sourced assets. High/Low values in the stats table reflect CoinGecko's daily OHLC candles, which use a different aggregation method than exchange data.
-- **Assets with no price data**: If neither Yahoo Finance nor CoinGecko has data for an asset, a warning is shown in place of the chart. The Performance and Order tabs still function using other data sources.
+- **Assets with no price data**: If neither EODHD, Yahoo Finance, nor CoinGecko has data for an asset, a warning is shown in place of the chart. The Performance and Order tabs still function using other data sources.
 - **Exchange rate**: The USD→EUR rate is refreshed once per day. Prices shown in EUR during the session reflect the rate at the time of the last refresh.
 - **Mainnet orders are irreversible**: Once confirmed, orders are sent directly to the Hyperliquid exchange. Always review the confirmation dialog before clicking Confirm.
 - **Testnet asset list**: The testnet list contains a subset of assets compared to mainnet. Not all mainnet assets are available for testnet trading.

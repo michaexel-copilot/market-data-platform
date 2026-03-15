@@ -76,21 +76,42 @@ CG_COIN_ID_MAP: dict[str, str] = {
 
 CG_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
 
+# Local EODHD service — hourly OHLCV data, no rate limits.
+EODHD_BASE_URL = "http://localhost:8010"
+
+# Maps HL symbol → EODHD instrument_id for symbols with hourly data in the
+# local service.  Populated only for symbols confirmed to have data (total > 0).
+# Extend this dict as more symbols are imported into the EODHD service.
+EODHD_SYMBOL_MAP: dict[str, str] = {
+    "BTC":  "bitcoin",
+    "ETH":  "ethereum",
+    "ADA":  "cardano",
+    "ALGO": "algorand",
+    "SKY":  "sky",
+}
+
 
 def get_data_source(hl_symbol: str) -> str:
     """Return the human-readable OHLCV data source for a given HL symbol."""
     key, _ = resolve_source_key(hl_symbol)
+    if key.startswith("eodhd:"):
+        return "EODHD"
     return "CoinGecko" if key.startswith("cg:") else "Yahoo Finance"
 
 
 def resolve_source_key(hl_symbol: str) -> tuple[str, float]:
     """
     Return (source_key, price_multiplier) for the given HL symbol.
-    source_key is either a Yahoo Finance ticker (e.g. "SOL-USD") or
-    a CoinGecko key prefixed with "cg:" (e.g. "cg:hyperliquid").
+    source_key is one of:
+      - "eodhd:{instrument_id}"  — local EODHD service (highest priority)
+      - "cg:{coin_id}"           — CoinGecko
+      - "{YF_TICKER}"            — Yahoo Finance (default)
     """
     sym = hl_symbol.upper()
     multiplier = 1000.0 if sym in K_SCALE_SET else 1.0
+    # EODHD takes priority for covered symbols
+    if sym in EODHD_SYMBOL_MAP:
+        return f"eodhd:{EODHD_SYMBOL_MAP[sym]}", multiplier
     if sym in CG_COIN_ID_MAP:
         return f"cg:{CG_COIN_ID_MAP[sym]}", multiplier
     ticker = YF_SYMBOL_MAP.get(sym, f"{sym}-USD")
@@ -131,6 +152,104 @@ def _save_cache(yf_ticker: str, candles: list[dict]) -> None:
     ]
     path.write_text(json.dumps(serialisable))
 
+
+# ---------------------------------------------------------------------------
+# EODHD helpers (tasks 2.1 – 2.3)
+# ---------------------------------------------------------------------------
+
+def _eodhd_cache_path(instrument_id: str) -> Path:
+    """Return today's cache path for raw EODHD hourly candles."""
+    return CACHE_DIR / f"{instrument_id}_eodhd_1h_{date.today()}.json"
+
+
+def _load_eodhd_cache(instrument_id: str) -> list[dict] | None:
+    path = _eodhd_cache_path(instrument_id)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+        for c in raw:
+            c["date"] = datetime.fromisoformat(c["date"])
+        return raw
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _save_eodhd_cache(instrument_id: str, hourly_candles: list[dict]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _eodhd_cache_path(instrument_id)
+    serialisable = [{**c, "date": c["date"].isoformat()} for c in hourly_candles]
+    path.write_text(json.dumps(serialisable))
+
+
+def _fetch_eodhd_hourly_raw(instrument_id: str) -> list[dict]:
+    """Fetch all hourly OHLCV candles from the local EODHD service (paginated).
+
+    Normalises timestamps to UTC.  Volume 0.0 is treated as None (fill-forward
+    artefact, not a zero-volume bar).
+    """
+    page = 1
+    all_candles: list[dict] = []
+    while True:
+        url = f"{EODHD_BASE_URL}/v1/ohlcv/{instrument_id}"
+        params = {"interval": "1h", "page_size": 1000, "page": page}
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items", [])
+        for item in items:
+            ts = datetime.fromisoformat(item["ts"]).astimezone(timezone.utc)
+            vol = item.get("volume")
+            all_candles.append({
+                "date":   ts,
+                "open":   float(item["open"]),
+                "high":   float(item["high"]),
+                "low":    float(item["low"]),
+                "close":  float(item["close"]),
+                "volume": float(vol) if vol and float(vol) > 0 else None,
+            })
+        if data.get("next_page") is None:
+            break
+        page = data["next_page"]
+    all_candles.sort(key=lambda c: c["date"])
+    if not all_candles:
+        raise ValueError(f"No EODHD hourly data for instrument '{instrument_id}'")
+    return all_candles
+
+
+def _resample_hourly_to_daily(hourly: list[dict]) -> list[dict]:
+    """Aggregate hourly candles into UTC calendar-day candles.
+
+    Each day: open=first, high=max, low=min, close=last, volume=sum (or None).
+    """
+    from collections import defaultdict
+
+    buckets: dict[tuple, list[dict]] = defaultdict(list)
+    for c in hourly:
+        dt = c["date"]
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        key = (dt.year, dt.month, dt.day)
+        buckets[key].append(c)
+
+    result = []
+    for (yr, mo, day), group in sorted(buckets.items()):
+        group.sort(key=lambda c: c["date"])
+        vol_vals = [c["volume"] for c in group if c.get("volume") is not None]
+        result.append({
+            "date":   datetime(yr, mo, day, tzinfo=timezone.utc),
+            "open":   group[0]["open"],
+            "high":   max(c["high"] for c in group),
+            "low":    min(c["low"]  for c in group),
+            "close":  group[-1]["close"],
+            "volume": sum(vol_vals) if vol_vals else None,
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Yahoo Finance & CoinGecko helpers
+# ---------------------------------------------------------------------------
 
 def _fetch_from_yf(yf_ticker: str) -> list[dict]:
     """Fetch daily OHLCV candles from Yahoo Finance, from 2020-01-01 to today."""
@@ -197,13 +316,25 @@ def _fetch_from_coingecko(cg_id: str) -> list[dict]:
 
 def fetch_ohlcv(source_key: str) -> list[dict]:
     """
-    Fetch daily OHLCV candles.  Yahoo Finance-backed tokens return data from
-    2020-01-01 to today; CoinGecko-backed tokens return the last 365 days
-    (free-tier maximum for daily granularity).  source_key is either a Yahoo Finance
-    ticker (e.g. "SOL-USD") or a CoinGecko key prefixed with "cg:"
-    (e.g. "cg:hyperliquid").  Results are cached to disk for the current day.
+    Fetch daily OHLCV candles.
+    - EODHD-backed tokens: fetches hourly from local service, resamples to daily.
+    - Yahoo Finance-backed tokens: data from 2020-01-01 to today.
+    - CoinGecko-backed tokens: last 365 days (free-tier maximum for daily granularity).
+    source_key is one of "eodhd:{instrument_id}", "cg:{coin_id}", or a YF ticker.
+    Results are cached to disk for the current day.
     Returns a list of dicts sorted by date with keys: date, open, high, low, close.
     """
+    if source_key.startswith("eodhd:"):
+        instrument_id = source_key[6:]
+        hourly = _load_eodhd_cache(instrument_id)
+        if hourly is None:
+            print(f"  (fetching from EODHD: {instrument_id})")
+            hourly = _fetch_eodhd_hourly_raw(instrument_id)
+            _save_eodhd_cache(instrument_id, hourly)
+        else:
+            print(f"  (EODHD hourly loaded from cache for {instrument_id})")
+        return _resample_hourly_to_daily(hourly)
+
     cached = _load_cache(source_key)
     if cached is not None:
         print(f"  (OHLCV loaded from cache for {source_key})")

@@ -26,7 +26,15 @@ import requests
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from draw_chart import K_SCALE_SET, PNG_DIR, resolve_source_key  # noqa: E402
+from draw_chart import (  # noqa: E402
+    K_SCALE_SET,
+    PNG_DIR,
+    resolve_source_key,
+    _fetch_eodhd_hourly_raw,
+    _load_eodhd_cache,
+    _save_eodhd_cache,
+    _resample_hourly_to_daily,
+)
 
 CACHE_DIR = ROOT / "cache" / "ohlcv"
 
@@ -127,6 +135,22 @@ def fetch_5y_candles(hl_symbol: str) -> list[dict]:
     Cached to disk for the current day.
     """
     source_key, multiplier = resolve_source_key(hl_symbol)
+
+    if source_key.startswith("eodhd:"):
+        instrument_id = source_key[6:]
+        hourly = _load_eodhd_cache(instrument_id)
+        if hourly is None:
+            print(f"[perf_data] fetching 5Y from EODHD: {instrument_id}")
+            hourly = _fetch_eodhd_hourly_raw(instrument_id)
+            _save_eodhd_cache(instrument_id, hourly)
+        else:
+            print(f"[perf_data] EODHD hourly loaded from cache: {instrument_id}")
+        candles = _resample_hourly_to_daily(hourly)
+        if multiplier != 1.0:
+            for c in candles:
+                for key in ("open", "high", "low", "close"):
+                    c[key] *= multiplier
+        return candles
 
     cached = _load_5y_cache(source_key)
     if cached is not None:
@@ -383,10 +407,38 @@ def fetch_4h_candles(hl_symbol: str, resolution: str = "4h") -> list[dict]:
     Fetch ~90 days of candles for a Hyperliquid symbol.
 
     resolution: "4h" (default) or "1h".
+    EODHD-backed symbols return true hourly OHLCV (native or resampled to 4H).
     YF symbols return true OHLCV; CG symbols return close-only data.
     Cached to disk per resolution per day.
     """
     source_key, multiplier = resolve_source_key(hl_symbol)
+
+    if source_key.startswith("eodhd:"):
+        instrument_id = source_key[6:]
+        # Use the shared EODHD hourly cache; trim to ~90 days for perf chart
+        hourly_all = _load_eodhd_cache(instrument_id)
+        if hourly_all is None:
+            print(f"[perf_data] fetching {resolution.upper()} from EODHD: {instrument_id}")
+            hourly_all = _fetch_eodhd_hourly_raw(instrument_id)
+            _save_eodhd_cache(instrument_id, hourly_all)
+        else:
+            print(f"[perf_data] EODHD hourly loaded from cache: {instrument_id}")
+        # Trim to last 90 days for consistency with YF/CG behaviour
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=91)
+        hourly = [c for c in hourly_all if c["date"] >= cutoff]
+        if multiplier != 1.0:
+            hourly = [
+                {**c,
+                 "open":  c["open"]  * multiplier,
+                 "high":  c["high"]  * multiplier,
+                 "low":   c["low"]   * multiplier,
+                 "close": c["close"] * multiplier}
+                for c in hourly
+            ]
+        candles = hourly if resolution == "1h" else _resample_1h_to_4h(hourly)
+        _save_candle_cache(source_key, resolution, candles)
+        return candles
 
     cached = _load_candle_cache(source_key, resolution)
     if cached is not None:
