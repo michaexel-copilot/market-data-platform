@@ -15,7 +15,7 @@ _conn: duckdb.DuckDBPyConnection | None = None
 
 
 def get_db_path() -> str:
-    return os.getenv("DUCKDB_PATH", "market_data.duckdb")
+    return os.getenv("DUCKDB_PATH", "/appdata/market-data-platform/db/market_data.duckdb")
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:

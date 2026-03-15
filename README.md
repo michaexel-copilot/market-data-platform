@@ -46,9 +46,9 @@ cp .env.example .env
 Key settings:
 
 ```ini
-DUCKDB_PATH=market_data.duckdb   # path to the DuckDB file
+DUCKDB_PATH=/appdata/market-data-platform/db/market_data.duckdb   # path to the DuckDB file
 HTTP_PORT=8010                   # REST API port (default: 8010)
-GRPC_PORT=50051                  # gRPC port (default: 50051)
+GRPC_PORT=50060                  # gRPC port (default: 50060)
 CMC_STATIC_DIR=/path/to/cmc/snapshots   # for the CMC importer
 ```
 
@@ -71,7 +71,7 @@ This starts both the REST/JSON-RPC server and the gRPC server in a single proces
 | Service | Default address |
 |---|---|
 | REST + JSON-RPC | `http://localhost:8010` |
-| gRPC | `localhost:50051` |
+| gRPC | `localhost:50060` |
 | Interactive API docs | `http://localhost:8010/docs` |
 | Management Console | `http://localhost:8010/console` |
 

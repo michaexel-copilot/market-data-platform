@@ -1,0 +1,10 @@
+[ ] CRUD Interface für alle Tabellen
+
+[ ] Main Page 
+
+- [ ] "OHLCV Time Range": Neue Spalte DATA_SOURCE. Es kann dann mehrere Einträge pro Intervall geben wenn von höher priorisierten Quellen keine Daten verfügbar sind
+
+- [ ] "OHLCV Data Available": wird so nicht benötigt. Anderer Zweck?
+
+[x] Datenbank nach /appdata/market-data-platform/db verschieben
+

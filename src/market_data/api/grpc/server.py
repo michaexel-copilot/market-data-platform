@@ -1,4 +1,4 @@
-"""Async gRPC server — listens on port 50051."""
+"""Async gRPC server — listens on port 50060."""
 from __future__ import annotations
 
 import logging
@@ -10,7 +10,7 @@ from market_data.api.grpc.servicer import MarketDataServicer
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PORT = 50051
+_DEFAULT_PORT = 50060
 _MAX_WORKERS = 10
 
 

@@ -1,6 +1,6 @@
 # Database Schema
 
-The platform uses a single [DuckDB](https://duckdb.org/) file. Its path is configured via `DUCKDB_PATH` in `.env` (default: `market_data.duckdb` relative to the project root).
+The platform uses a single [DuckDB](https://duckdb.org/) file. Its path is configured via `DUCKDB_PATH` in `.env` (default: `/appdata/market-data-platform/db/market_data.duckdb`).
 
 Run migrations with:
 

@@ -63,7 +63,7 @@ market-data import-cmc-static /path/to/data --dry-run
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CMC_STATIC_DIR` | — | Default snapshot directory (used if no `DIR` argument is given) |
-| `DUCKDB_PATH` | `market_data.duckdb` | Path to the DuckDB database file |
+| `DUCKDB_PATH` | `/appdata/market-data-platform/db/market_data.duckdb` | Path to the DuckDB database file |
 
 ## Idempotency
 

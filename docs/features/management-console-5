@@ -2,6 +2,7 @@
 
 ## Step 0: Specifaction of the feature
 
+[ ] in the table data_source add a row for coincodex (name: coincodex, base_url: https://coincodex.com, short name: ccx, api_page_url: https://coincodex.com/page/api/, retrieval_priority: 10)
 [ ] On the Action bar add a drop down list with the data source depending on the interval chosen in #DDL_OHLCV_PERIOD. List only providers that have the data. Preselect the provider with the highest priority for the interval
 [ ] update the logic behind the button #BTN_UPDATE_FUNDAMENTALS accordingly
 [ ] update the table under #ohlcv-matrix-section

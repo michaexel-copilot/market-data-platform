@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 import os
 _REST_PORT = int(os.environ.get("HTTP_PORT", 8010))
-_GRPC_PORT = int(os.environ.get("GRPC_PORT", 50051))
+_GRPC_PORT = int(os.environ.get("GRPC_PORT", 50060))
 
 
 def serve() -> None:
-    """Entry point for `uv run serve` — starts REST (HTTP_PORT, default 8010) and gRPC (GRPC_PORT, default 50051)."""
+    """Entry point for `uv run serve` — starts REST (HTTP_PORT, default 8010) and gRPC (GRPC_PORT, default 50060)."""
     import dotenv
     dotenv.load_dotenv()
 
