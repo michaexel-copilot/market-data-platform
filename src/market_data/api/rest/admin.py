@@ -32,8 +32,81 @@ class ComputeIndicatorsRequest(BaseModel):
     pos_usd: float = 100.0
 
 
+class ImportOhlcvRequest(BaseModel):
+    interval: str
+    symbol: str | None = None
+
+
 class ImportCmcStaticRequest(BaseModel):
     dir: str | None = None
+
+
+@router.post("/import-ohlcv")
+def run_import_ohlcv(req: ImportOhlcvRequest) -> dict:
+    """Bulk-import OHLCV data from the local eodhd cache for active instruments.
+
+    Dispatched to the thread pool (plain def) so long-running bulk runs do not
+    block the event loop.
+
+    Returns ``{ok, errors, results}``.
+    """
+    if req.interval not in _NATIVE_INTERVALS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Interval {req.interval!r} is not supported. Supported: {sorted(_NATIVE_INTERVALS)}",
+        )
+
+    conn = get_connection()
+
+    if req.symbol:
+        from market_data.db.resolver import resolve_symbol
+        from market_data.models.api import SymbolNotFoundError
+        try:
+            instrument_id = resolve_symbol(req.symbol)
+        except SymbolNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticker_row = conn.execute(
+            "SELECT ticker FROM instruments WHERE instrument_id = ? LIMIT 1",
+            [instrument_id],
+        ).fetchone()
+        rows = [(instrument_id, ticker_row[0] if ticker_row else req.symbol)]
+    else:
+        rows = conn.execute(
+            "SELECT instrument_id, ticker FROM instruments WHERE is_active = TRUE ORDER BY ticker"
+        ).fetchall()
+
+    ok_count = 0
+    err_count = 0
+    results = []
+
+    for instrument_id, ticker in rows:
+        t0 = time.monotonic()
+        try:
+            result = import_from_cache(instrument_id, ticker, "eodhd", req.interval, conn)
+            elapsed = time.monotonic() - t0
+            status = result.get("status", "ok")
+            if status == "ok":
+                ok_count += 1
+                results.append({
+                    "ticker": ticker,
+                    "status": "ok",
+                    "rows_imported": result.get("rows_imported", 0),
+                    "elapsed_s": round(elapsed, 3),
+                })
+            else:
+                err_count += 1
+                results.append({
+                    "ticker": ticker,
+                    "status": status,
+                    "error": result.get("expected_path", str(result)),
+                    "elapsed_s": round(elapsed, 3),
+                })
+        except Exception as exc:  # noqa: BLE001
+            elapsed = time.monotonic() - t0
+            err_count += 1
+            results.append({"ticker": ticker, "status": "error", "error": str(exc), "elapsed_s": round(elapsed, 3)})
+
+    return {"ok": ok_count, "errors": err_count, "results": results}
 
 
 @router.post("/migrate-fundamentals")

@@ -117,7 +117,7 @@ def test_long_stop_loss_triggers():
 
 @pytest.fixture
 def db_with_ohlcv():
-    """In-memory DB with migrations + BTC instrument + 200 daily candles."""
+    """In-memory DB with migrations + BTC instrument + 200 days of hourly candles (2 rows per day)."""
     import random
     import datetime
     import market_data.db.connection as cm
@@ -132,13 +132,20 @@ def db_with_ohlcv():
     rng = random.Random(42)
     price = 40000.0
     for i in range(200):
-        ts = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
+        day = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
         price *= 1 + rng.uniform(-0.03, 0.03)
         h, l = price * 1.01, price * 0.99
+        ts_open  = datetime.datetime.combine(day, datetime.time(0, 0, 0))
+        ts_close = datetime.datetime.combine(day, datetime.time(23, 0, 0))
         conn.execute(
             "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
             "VALUES (?,?,?,?,?,?,?,?,?)",
-            ["uuid-btc-001", "1d", str(ts), price * 0.995, h, l, price, 1000, "test"],
+            ["uuid-btc-001", "1h", str(ts_open), price * 0.995, h, l, price, 500, "test"],
+        )
+        conn.execute(
+            "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            ["uuid-btc-001", "1h", str(ts_close), price * 0.995, h, l, price * 1.005, 500, "test"],
         )
     original = cm._conn
     cm._conn = conn
@@ -157,7 +164,7 @@ def test_compute_best_sma_returns_valid_pair(db_with_ohlcv):
 
 def test_compute_best_sma_raises_on_empty_ohlcv(db_with_ohlcv):
     from market_data.strategies.best_sma import compute_best_sma
-    with pytest.raises(ValueError, match="No daily OHLCV data"):
+    with pytest.raises(ValueError, match="No hourly OHLCV data"):
         compute_best_sma("nonexistent-uuid", {})
 
 

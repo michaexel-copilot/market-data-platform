@@ -24,6 +24,7 @@ scheduler           = "market_data.ingestion:run_scheduler"
 migrate             = "market_data.db:migrate"
 market-data         = "market_data.cli:main"
 compute-indicators  = "market_data.cli.compute_indicators:main"
+import-ohlcv        = "market_data.cli.import_ohlcv:main"
 
 [build-system]
 requires = ["hatchling"]

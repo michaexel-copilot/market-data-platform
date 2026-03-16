@@ -117,20 +117,22 @@ async def test_post_compute_unknown_strategy(app):
 
 @pytest.mark.asyncio
 async def test_post_compute_then_get(patched_db, app):
-    # Seed enough OHLCV rows for a meaningful backtest (200 days)
+    # Seed enough OHLCV rows for a meaningful backtest (200 days × 2 hourly rows)
     import random, datetime
     patched_db.execute("DELETE FROM ohlcv")
     rng = random.Random(99)
     price = 35000.0
     for i in range(200):
-        ts = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
+        day = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
         price *= 1 + rng.uniform(-0.03, 0.03)
         h, l = price * 1.01, price * 0.99
-        patched_db.execute(
-            "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            ["uuid-btc-001", "1d", str(ts), price * 0.995, h, l, price, 1000, "test"],
-        )
+        for hour in (0, 23):
+            ts = datetime.datetime.combine(day, datetime.time(hour, 0, 0))
+            patched_db.execute(
+                "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                ["uuid-btc-001", "1h", str(ts), price * 0.995, h, l, price, 500, "test"],
+            )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # POST compute
@@ -181,13 +183,15 @@ async def test_admin_compute_indicators_single_symbol(patched_db, app):
     rng = random.Random(42)
     price = 35000.0
     for i in range(200):
-        ts = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
+        day = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
         price *= 1 + rng.uniform(-0.03, 0.03)
-        patched_db.execute(
-            "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            ["uuid-btc-001", "1d", str(ts), price, price * 1.01, price * 0.99, price, 1000, "test"],
-        )
+        for hour in (0, 23):
+            ts = datetime.datetime.combine(day, datetime.time(hour, 0, 0))
+            patched_db.execute(
+                "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                ["uuid-btc-001", "1h", str(ts), price, price * 1.01, price * 0.99, price, 500, "test"],
+            )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(
@@ -219,6 +223,61 @@ async def test_admin_compute_indicators_bulk_partial_error(patched_db, app):
     assert data["ok"] == 0
     assert len(data["results"]) == 2
     assert all(r["status"] == "error" for r in data["results"])
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/admin/import-ohlcv
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_admin_import_ohlcv_unknown_interval(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "99d"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_import_ohlcv_unknown_symbol(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "1h", "symbol": "NONEXISTENT_XYZ"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_import_ohlcv_bulk(app):
+    """Bulk run with mocked import_from_cache returns ok count and result entries."""
+    from unittest.mock import patch
+
+    mock_result = {"status": "ok", "rows_imported": 42}
+    with patch("market_data.api.rest.admin.import_from_cache", return_value=mock_result) as mock_fn:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "1h"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] == 1
+    assert data["errors"] == 0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["ticker"] == "BTC"
+    assert data["results"][0]["rows_imported"] == 42
+    mock_fn.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_admin_import_ohlcv_single_symbol(app):
+    """Single-symbol run calls import_from_cache exactly once for BTC."""
+    from unittest.mock import patch
+
+    mock_result = {"status": "ok", "rows_imported": 100}
+    with patch("market_data.api.rest.admin.import_from_cache", return_value=mock_result):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "1h", "symbol": "BTC"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] == 1
+    assert data["results"][0]["ticker"] == "BTC"
+    assert data["results"][0]["rows_imported"] == 100
 
 
 # ---------------------------------------------------------------------------

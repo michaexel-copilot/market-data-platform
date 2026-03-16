@@ -30,18 +30,40 @@ def compute_best_sma(instrument_id: str, parameters: dict | None = None) -> dict
     conn = get_connection()
     rows = conn.execute(
         """
-        SELECT ts, open, high, low, close
-        FROM ohlcv
-        WHERE instrument_id = ? AND interval = '1d'
-        ORDER BY ts ASC
+        WITH daily AS (
+            SELECT
+                DATE_TRUNC('day', ts)                        AS day,
+                MIN(ts)                                      AS first_ts,
+                MAX(ts)                                      AS last_ts,
+                MAX(high)                                    AS high,
+                MIN(low)                                     AS low,
+                SUM(volume)                                  AS volume
+            FROM ohlcv
+            WHERE instrument_id = ? AND interval = '1h'
+            GROUP BY DATE_TRUNC('day', ts)
+        )
+        SELECT
+            d.day,
+            o_open.open,
+            d.high,
+            d.low,
+            o_close.close
+        FROM daily d
+        JOIN ohlcv o_open  ON o_open.instrument_id  = ?
+                          AND o_open.interval        = '1h'
+                          AND o_open.ts              = d.first_ts
+        JOIN ohlcv o_close ON o_close.instrument_id = ?
+                          AND o_close.interval       = '1h'
+                          AND o_close.ts             = d.last_ts
+        ORDER BY d.day ASC
         """,
-        [instrument_id],
+        [instrument_id, instrument_id, instrument_id],
     ).fetchall()
 
     if not rows:
         raise ValueError(
-            f"No daily OHLCV data found for instrument_id={instrument_id!r}. "
-            "Ingest daily candles before computing indicators."
+            f"No hourly OHLCV data found for instrument_id={instrument_id!r}. "
+            "Run 'import-ohlcv --interval 1h' before computing indicators."
         )
 
     candles = [
