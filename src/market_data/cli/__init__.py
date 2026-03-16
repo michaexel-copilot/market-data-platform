@@ -5,21 +5,29 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
 
 
 def _import_cmc_static(args: argparse.Namespace) -> int:
-    from market_data.ingestion.import_coinmarketcap_static import run_import
+    base_url = args.url or os.getenv("MARKET_DATA_URL", "http://localhost:8010").rstrip("/")
+    endpoint = f"{base_url}/v1/admin/import-cmc-static"
 
-    directory = Path(args.dir) if args.dir else Path(os.getenv("CMC_STATIC_DIR", ""))
-    if not directory or not directory.exists():
-        print(f"Error: directory does not exist: {directory or '<CMC_STATIC_DIR not set>'}", file=sys.stderr)
-        return 1
-    if not directory.is_dir():
-        print(f"Error: path is not a directory: {directory}", file=sys.stderr)
+    payload: dict = {}
+    if args.dir:
+        payload["dir"] = args.dir
+
+    try:
+        import httpx
+        response = httpx.post(endpoint, json=payload, timeout=600.0)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error: could not connect to {endpoint}: {exc}", file=sys.stderr)
         return 1
 
-    counts = run_import(directory, dry_run=args.dry_run)
+    if not response.is_success:
+        detail = response.json().get("detail") or response.text
+        print(f"Error: {detail}", file=sys.stderr)
+        return 1
+
+    counts = response.json()
     if counts:
         print("Import complete:")
         for key, val in counts.items():
@@ -33,9 +41,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="market-data", description="Market Data Platform CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    cmc = sub.add_parser("import-cmc-static", help="Import CoinMarketCap static TSV snapshots into DuckDB")
-    cmc.add_argument("dir", nargs="?", default=None, help="Directory containing TSV snapshots (default: $CMC_STATIC_DIR)")
-    cmc.add_argument("--dry-run", action="store_true", help="Parse files without writing to the database")
+    cmc = sub.add_parser("import-cmc-static", help="Import CoinMarketCap static TSV snapshots via the REST service")
+    cmc.add_argument("dir", nargs="?", default=None, help="Directory containing TSV snapshots (default: $CMC_STATIC_DIR on the server)")
+    cmc.add_argument(
+        "--url",
+        default=None,
+        help="Base URL of the REST service (default: $MARKET_DATA_URL or http://localhost:8010)",
+    )
 
     args = parser.parse_args()
 

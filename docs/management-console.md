@@ -95,3 +95,123 @@ Then open [http://localhost:8010/console](http://localhost:8010/console) in your
 | `GET /v1/instruments/{instrument_id}/ohlcv-availability` | OHLCV Time Range section |
 | `GET /v1/instruments/{instrument_id}/ohlcv-data-available` | OHLCV Data Available matrix |
 | `POST /v1/admin/import-ohlcv-cache` | Import OHLCV from local cache (`BTN_UPDATE_OHLCV`) |
+
+---
+
+## Admin Endpoints
+
+All admin endpoints are under `/v1/admin/`. They perform long-running database operations
+and are designed to be called from the CLI or from automation scripts.
+
+> **Note:** All CLI commands delegate to these endpoints instead of opening a direct
+> DuckDB connection. This avoids the "database is locked" error when the REST service
+> is already running. Set `MARKET_DATA_URL` (default: `http://localhost:8010`) to point
+> CLIs at a non-default server.
+
+---
+
+### POST /v1/admin/compute-indicators
+
+Compute strategy indicator values for one or all active instruments and persist them
+to the `trading_strategies` table.
+
+**Request body** (JSON):
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `strategy` | string | yes | — | Strategy name, e.g. `best_sma` |
+| `symbol` | string | no | null | Ticker symbol. Omit to run for all active instruments. |
+| `sl_short` | float | no | 10.0 | Stop-loss % for short strategy |
+| `sl_long` | float | no | 10.0 | Stop-loss % for long strategy |
+| `pos_usd` | float | no | 100.0 | Position size in USD |
+
+**Example request:**
+```bash
+curl -s -X POST http://localhost:8010/v1/admin/compute-indicators \
+  -H "Content-Type: application/json" \
+  -d '{"strategy": "best_sma", "symbol": "BTC"}'
+```
+
+**Example response (HTTP 200):**
+```json
+{
+  "ok": 1,
+  "errors": 0,
+  "results": [
+    { "ticker": "BTC", "status": "ok", "elapsed_s": 0.42 }
+  ]
+}
+```
+
+**Error responses:**
+- `422` — unknown strategy name: `{"detail": "Unknown strategy 'foo'. Available: best_sma"}`
+- `404` — symbol not found: `{"detail": "Symbol 'XYZ' not found"}`
+
+**CLI equivalent:**
+```bash
+# All active instruments
+uv run compute-indicators --strategy best_sma
+
+# Single instrument
+uv run compute-indicators --strategy best_sma --symbol BTC
+
+# Custom stop-loss and position size
+uv run compute-indicators --strategy best_sma --sl-short 5 --sl-long 8 --pos-usd 200
+
+# Against a non-default server
+uv run compute-indicators --strategy best_sma --url http://myserver:9000
+# or: MARKET_DATA_URL=http://myserver:9000 uv run compute-indicators --strategy best_sma
+```
+
+Exit code: `0` if all instruments succeeded, `1` if any errors.
+
+---
+
+### POST /v1/admin/import-cmc-static
+
+Import pre-downloaded CoinMarketCap static TSV snapshots from the server filesystem
+into DuckDB. The import is idempotent — already-processed snapshots are skipped.
+
+**Request body** (JSON):
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dir` | string | no | `$CMC_STATIC_DIR` | Directory containing `*_listing_data.tsv` snapshot files. Falls back to the server-side `CMC_STATIC_DIR` env var if omitted. |
+
+**Example request:**
+```bash
+curl -s -X POST http://localhost:8010/v1/admin/import-cmc-static \
+  -H "Content-Type: application/json" \
+  -d '{"dir": "/data/cmc-snapshots"}'
+```
+
+**Example response (HTTP 200):**
+```json
+{
+  "listing": 150,
+  "map": 148,
+  "categories": 12,
+  "category_coins": 890,
+  "skipped": 2
+}
+```
+An empty object `{}` is returned if no snapshots were found in the directory.
+
+**Error responses:**
+- `422` — no directory configured: `{"detail": "No directory specified and CMC_STATIC_DIR is not set"}`
+- `422` — directory not found: `{"detail": "Directory does not exist: /invalid/path"}`
+
+**CLI equivalent:**
+```bash
+# Use server-side CMC_STATIC_DIR env var
+uv run market-data import-cmc-static
+
+# Explicit directory (passed to the server)
+uv run market-data import-cmc-static /data/cmc-snapshots
+
+# Against a non-default server
+uv run market-data import-cmc-static --url http://myserver:9000
+# or: MARKET_DATA_URL=http://myserver:9000 uv run market-data import-cmc-static
+```
+
+Exit code: `0` on success, `1` on error.

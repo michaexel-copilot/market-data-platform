@@ -5,7 +5,6 @@ $description of the feature$
 ## Step 1
 [ ] /clear # clears the context window
 [ ] /ospx-propose $feature_name$
-[ ] Review durchgeführt
 
 ### Rückfragen KI (Claude Sonnet 4.6)
 [ ] $rueckfragen von ki$
@@ -19,6 +18,7 @@ $description of the feature$
 
 ## Step 3 archive
 [ ] /ospx-archive $feature_name$
+[ ] update documentation
 
 ## Step 4 Nacharbeiten
 [ ] Review aller Tasks aus Step 0
