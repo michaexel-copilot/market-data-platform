@@ -26,6 +26,8 @@ Migrations are idempotent — already-applied files are skipped. Applied files a
   - [ohlcv](#ohlcv)
   - [ohlcv\_weekly (view)](#ohlcv_weekly-view)
   - [ohlcv\_monthly (view)](#ohlcv_monthly-view)
+- [Strategy Cache](#strategy-cache)
+  - [trading\_strategies](#trading_strategies)
 - [Internal](#internal)
   - [\_migrations](#_migrations)
 
@@ -44,6 +46,8 @@ instruments ──┬──< instrument_identifiers
 ohlcv (no FK — instrument_id links by convention)
 ohlcv_weekly  (view over ohlcv WHERE interval='1d')
 ohlcv_monthly (view over ohlcv WHERE interval='1d')
+
+trading_strategies (no FK — instrument_id links by convention)
 ```
 
 Each asset-class attribute table has a **1-to-1** relationship with `instruments` (one row per instrument). `instrument_identifiers` has a **1-to-many** relationship (many external IDs per instrument).
@@ -264,6 +268,33 @@ A live (non-materialised) DuckDB view derived from `ohlcv WHERE interval = '1d'`
 | `market_cap` | `last(market_cap ORDER BY ts)` |
 | `source` | group key |
 | `ingested_at` | `max(ingested_at)` |
+
+---
+
+## Strategy Cache
+
+### trading_strategies
+
+Pre-computed indicator values produced by trading strategy algorithms. Used as a look-up cache: the REST API and `FindShortOpportunites` read from this table rather than running live grid-search computations. Values are written by the `compute-indicators` CLI or the `POST /v1/trading-strategies/{symbol}/compute` endpoint.
+
+| Column | Type | Nullable | Description |
+|---|---|---|---|
+| `instrument_id` | VARCHAR | NOT NULL | Links to `instruments.instrument_id` (no FK constraint) |
+| `strategy_name` | VARCHAR | NOT NULL | Registered strategy identifier (e.g. `best_sma`) |
+| `indicator_name` | VARCHAR | NOT NULL | Name of the output indicator (e.g. `sma_low`, `sma_high`) |
+| `indicator_value` | DOUBLE | NOT NULL | Computed numeric value of the indicator |
+| `parameters` | JSON | yes | Strategy parameters used during computation (e.g. `{"sl_short": 10, "sl_long": 10, "pos_usd": 100}`) |
+| `computed_at` | TIMESTAMPTZ | NOT NULL | UTC timestamp when this row was last written (default: `now()`) |
+
+**Indexes**
+- `PRIMARY KEY (instrument_id, strategy_name, indicator_name)` — one value per indicator per strategy per instrument; re-computation UPSERTs in place
+
+**ER relationship:**
+```
+trading_strategies (no FK — instrument_id links by convention to instruments.instrument_id)
+```
+
+Each `(instrument_id, strategy_name)` pair can have multiple rows — one per indicator produced by that strategy. For example, `best_sma` writes two rows per instrument: one for `sma_low` and one for `sma_high`.
 
 ---
 

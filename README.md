@@ -92,6 +92,7 @@ HTTP_PORT=9000 GRPC_PORT=9001 uv run serve
 | `uv run ingest` | Run all configured connectors once |
 | `uv run scheduler` | Start the background ingestion scheduler |
 | `uv run market-data import-cmc-static [DIR]` | Import CoinMarketCap TSV snapshots |
+| `uv run compute-indicators` | Bulk-compute trading strategy indicators and store results |
 
 ---
 
@@ -112,6 +113,21 @@ Base URL: `http://localhost:8010`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/v1/ohlcv/{symbol}` | Time-series candles. Required: `interval` (`1m`,`5m`,`1h`,`1d`,`1w`,`1mo`). Optional: `since`, `until`, `page`, `page_size` (max 5000) |
+
+### Trading Strategies
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/trading-strategies/{symbol}` | Retrieve pre-computed indicator values. Optional query param: `strategy_name` |
+| `POST` | `/v1/trading-strategies/{symbol}/compute` | Compute and store indicator values on-demand for one instrument |
+
+**Example:**
+
+```bash
+curl "http://localhost:8010/v1/trading-strategies/BTC?strategy_name=best_sma"
+```
+
+Returns `404` if no values have been computed yet. Use `compute-indicators` (see below) or the `POST` endpoint to populate.
 
 ### Other
 
@@ -195,8 +211,42 @@ Managed via sequential SQL migrations in `src/market_data/db/migrations/`:
 | `009` | `ohlcv_weekly`, `ohlcv_monthly` (views) |
 | `010` | `cmc_import_log`, `cmc_listing_snapshots`, `cmc_coin_tags`, `cmc_categories`, `cmc_category_coins`, `cmc_map` |
 | `011` | Adds `cmc_id`, `cmc_slug`, `cmc_rank` columns to `instrument_crypto` |
+| `017` | `trading_strategies` |
 
 ---
+
+## Compute Indicators CLI
+
+Pre-compute trading strategy indicators and persist them to the `trading_strategies` table so that the REST API and downstream clients can retrieve results instantly without running expensive grid-search computations at request time.
+
+```bash
+uv run compute-indicators --strategy best_sma [OPTIONS]
+```
+
+**Arguments**
+
+| Argument | Required | Default | Description |
+|---|---|---|---|
+| `--strategy` | **yes** | — | Strategy name to run (e.g. `best_sma`) |
+| `--symbol` | no | *(all instruments)* | Restrict computation to a single instrument ticker (e.g. `BTC`) |
+| `--sl-short` | no | `10` | Stop-loss percentage for short positions |
+| `--sl-long` | no | `10` | Stop-loss percentage for long positions |
+| `--pos-usd` | no | `100` | Simulated position size in USD |
+
+**Examples**
+
+```bash
+# Compute best_sma for every instrument in the database
+uv run compute-indicators --strategy best_sma
+
+# Compute only for BTC
+uv run compute-indicators --strategy best_sma --symbol BTC
+
+# Custom stop-loss and position size
+uv run compute-indicators --strategy best_sma --sl-short 5 --sl-long 8 --pos-usd 500
+```
+
+The command exits with code `0` on success or `1` if any instrument failed (errors are printed to stderr while successful instruments continue processing). Results are upserted — re-running is safe and idempotent.
 
 ## Data Sources
 

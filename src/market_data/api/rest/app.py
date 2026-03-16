@@ -14,6 +14,7 @@ from market_data.api.rest.admin import router as admin_router
 from market_data.api.rest.console import router as console_router
 from market_data.api.rest.instruments import router as instruments_router
 from market_data.api.rest.ohlcv import router as ohlcv_router
+from market_data.api.rest.trading_strategies import router as trading_strategies_router
 from market_data.api.jsonrpc.handler import router as jsonrpc_router
 from market_data.models.api import AmbiguousSymbolError, SymbolNotFoundError
 
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(console_router)
     app.include_router(instruments_router)
     app.include_router(ohlcv_router)
+    app.include_router(trading_strategies_router)
 
     # JSON-RPC handler at /jsonrpc
     app.include_router(jsonrpc_router, prefix="/jsonrpc")

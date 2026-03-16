@@ -76,3 +76,76 @@ async def test_get_ohlcv(app):
     bar = data["items"][0]
     assert bar["open"] == pytest.approx(35000)
     assert bar["close"] == pytest.approx(35500)
+
+
+# ---------------------------------------------------------------------------
+# Trading strategies endpoints
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_trading_strategies_404_when_no_data(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/trading-strategies/btc")
+    assert resp.status_code == 404
+    assert "precomputed" in resp.json()["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_trading_strategies_symbol_not_found(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/trading-strategies/UNKNOWN_XYZ_999")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_post_compute_missing_ohlcv(patched_db, app):
+    # Remove OHLCV rows so compute fails with a missing-data error
+    patched_db.execute("DELETE FROM ohlcv")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/trading-strategies/btc/compute", json={"strategy": "best_sma"})
+    assert resp.status_code == 422
+    assert "ohlcv" in resp.json()["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_compute_unknown_strategy(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/trading-strategies/btc/compute", json={"strategy": "nonexistent"})
+    assert resp.status_code == 422
+    assert "unknown strategy" in resp.json()["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_compute_then_get(patched_db, app):
+    # Seed enough OHLCV rows for a meaningful backtest (200 days)
+    import random, datetime
+    patched_db.execute("DELETE FROM ohlcv")
+    rng = random.Random(99)
+    price = 35000.0
+    for i in range(200):
+        ts = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
+        price *= 1 + rng.uniform(-0.03, 0.03)
+        h, l = price * 1.01, price * 0.99
+        patched_db.execute(
+            "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            ["uuid-btc-001", "1d", str(ts), price * 0.995, h, l, price, 1000, "test"],
+        )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # POST compute
+        resp = await client.post("/v1/trading-strategies/btc/compute", json={"strategy": "best_sma"})
+    assert resp.status_code == 200
+    computed = resp.json()["computed"]
+    names = {item["indicator_name"] for item in computed}
+    assert "sma_low" in names
+    assert "sma_high" in names
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # GET should now return 200
+        resp = await client.get("/v1/trading-strategies/btc?strategy_name=best_sma")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 2
+    indicator_names = {i["indicator_name"] for i in items}
+    assert indicator_names == {"sma_low", "sma_high"}
