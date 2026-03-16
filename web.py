@@ -56,9 +56,15 @@ TEMPLATES.env.filters["fmt_usd"] = _fmt_usd
 # ---------------------------------------------------------------------------
 
 import json as _json  # noqa: E402 (needed here for module-level cache)
+import os as _os  # noqa: E402
 import requests as _requests  # noqa: E402
 
 _EUR_RATE_CACHE: dict = {}
+
+# URL of the market-data-platform REST API (override via env var).
+_MARKET_DATA_PLATFORM_URL = _os.environ.get(
+    "MARKET_DATA_PLATFORM_URL", "http://localhost:8010"
+).rstrip("/")
 
 
 def fetch_eur_usd_rate() -> float:
@@ -586,11 +592,48 @@ async def best_sma_endpoint(
     sl_long: int = 10,
     pos: int = 100,
 ) -> JSONResponse:
-    """Return the best (sma_low, sma_high) pair for the given symbol."""
-    try:
-        sma_low, sma_high, candles_scaled, split_idx = _find_best_sma(symbol, sl_short, sl_long, float(pos))
+    """Return the best (sma_low, sma_high) pair for the given symbol.
 
-        # Run validation backtest on the held-out 20% slice.
+    The values are read from the market-data-platform (precomputed).
+    Returns HTTP 422 if no precomputed data is available.
+    """
+    try:
+        import httpx
+        url = f"{_MARKET_DATA_PLATFORM_URL}/v1/trading-strategies/{symbol.lower()}?strategy_name=best_sma"
+        resp = httpx.get(url, timeout=10.0)
+        if resp.status_code == 404:
+            return JSONResponse(
+                {
+                    "error": (
+                        f"No precomputed SMA data for {symbol.upper()}. "
+                        "Run compute-indicators --strategy best_sma first."
+                    )
+                },
+                status_code=422,
+            )
+        if resp.status_code != 200:
+            return JSONResponse(
+                {"error": f"market-data-platform returned {resp.status_code}: {resp.text}"},
+                status_code=500,
+            )
+
+        items = resp.json().get("items", [])
+        indicator_map = {item["indicator_name"]: item["indicator_value"] for item in items}
+        sma_low  = int(indicator_map["sma_low"])
+        sma_high = int(indicator_map["sma_high"])
+
+        # Run OOS validation locally using the returned SMA values and fresh candles.
+        sym_upper = symbol.upper()
+        source_key, multiplier = resolve_source_key(sym_upper)
+        candles_scaled = fetch_ohlcv(source_key)
+        if multiplier != 1.0:
+            candles_scaled = [
+                {**c, "open": c["open"] * multiplier, "high": c["high"] * multiplier,
+                 "low": c["low"] * multiplier, "close": c["close"] * multiplier}
+                for c in candles_scaled
+            ]
+
+        split_idx     = int(len(candles_scaled) * 0.8)
         val_candles   = candles_scaled[split_idx:]
         train_candles = candles_scaled[:split_idx]
         val_sma_lows  = _sma([c["low"]  for c in val_candles], sma_low)
