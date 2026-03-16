@@ -314,6 +314,8 @@
         class="btn btn-sm btn-outline-primary"
         hx-get="/asset/{{ symbol }}/best-sma"
         hx-include="#sl-short-input, #sl-long-input, #pos-input"
+        hx-swap="none"
+        hx-trigger="{{ 'click, load' if not auto_sma else 'click' }}"
         hx-indicator="#find-best-sma-btn"
         hx-on::after-request="
           try {
@@ -323,8 +325,11 @@
             if (!raw) return;
             const data = JSON.parse(raw);
             if (data.sma && data.sma_high) {
+              const pos     = document.getElementById('pos-input')      ? document.getElementById('pos-input').value      : '{{ pos_usd }}';
+              const slShort = document.getElementById('sl-short-input') ? document.getElementById('sl-short-input').value : '{{ sl_short }}';
+              const slLong  = document.getElementById('sl-long-input')  ? document.getElementById('sl-long-input').value  : '{{ sl_long }}';
               const url = '/asset/{{ symbol }}?sma=' + data.sma + '&sma_high=' + data.sma_high
-                + '&pos={{ pos_usd }}&sl_short={{ sl_short }}&sl_long={{ sl_long }}&tab=chart';
+                + '&pos=' + pos + '&sl_short=' + slShort + '&sl_long=' + slLong + '&tab=chart&auto_sma=1';
               htmx.ajax('GET', url, {target: '#detail-pane', swap: 'innerHTML'});
             }
           } catch(err) { console.error('[best-sma]', err); }

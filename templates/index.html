@@ -360,27 +360,21 @@ function restoreIgnored(sym) {
 // ---------------------------------------------------------------------------
 // Activate (load chart)
 // ---------------------------------------------------------------------------
+let _activating = false;
 function activateItem(el) {
-  document.querySelectorAll('.asset-item').forEach(e => e.classList.remove('active'));
-  el.classList.add('active');
-  el.focus();
-  el.scrollIntoView({ block: 'nearest' });
+  // Guard against re-entrant calls caused by htmx.trigger re-firing the onclick handler.
+  if (_activating) return;
+  _activating = true;
+  try {
+    document.querySelectorAll('.asset-item').forEach(e => e.classList.remove('active'));
+    el.classList.add('active');
+    el.focus();
+    el.scrollIntoView({ block: 'nearest' });
 
-  // Auto-trigger Find Best SMA once the detail pane has been swapped in
-  const detailPane = document.getElementById('detail-pane');
-  if (detailPane) {
-    const observer = new MutationObserver(function(mutations, obs) {
-      obs.disconnect();
-      // Defer click so HTMX has time to process hx-* attributes on new DOM
-      setTimeout(function() {
-        const btn = document.getElementById('find-best-sma-btn');
-        if (btn) btn.click();
-      }, 50);
-    });
-    observer.observe(detailPane, { childList: true });
+    htmx.trigger(el, 'click');
+  } finally {
+    _activating = false;
   }
-
-  htmx.trigger(el, 'click');
 }
 
 function activateBySymbol(sym) {

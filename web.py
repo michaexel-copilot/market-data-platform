@@ -179,81 +179,11 @@ ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {
     **{a["symbol"]: a for a in MAINNET_ASSETS},  # mainnet takes precedence
 }
 
+
 # ---------------------------------------------------------------------------
 # Out-of-sample validation cache (keyed by (symbol_upper, sma_low, sma_high, sl_short, sl_long, pos_usd))
 # ---------------------------------------------------------------------------
 OOS_CACHE: dict[tuple, dict] = {}
-
-_BEST_SMA_MIN = 3
-_BEST_SMA_MAX = 50
-
-
-def _find_best_sma(
-    symbol: str,
-    sl_short: float,
-    sl_long: float,
-    pos: float,
-) -> tuple[int, int, list, int]:
-    """Brute-force search over SMA LOW × SMA HIGH ∈ [3,50] using the first 80% of candles.
-    Returns (sma_low, sma_high, full_scaled_candles, split_idx)."""
-    sym_upper = symbol.upper()
-
-    # Fetch OHLCV once (disk-cached per day) and scale prices.
-    source_key, multiplier = resolve_source_key(sym_upper)
-    candles = fetch_ohlcv(source_key)
-    if multiplier != 1.0:
-        candles = [
-            {**c, "open": c["open"] * multiplier, "high": c["high"] * multiplier,
-             "low": c["low"] * multiplier, "close": c["close"] * multiplier}
-            for c in candles
-        ]
-
-    # Use only the first 80% of candles for the optimisation grid search.
-    split_idx = int(len(candles) * 0.8)
-    train_candles = candles[:split_idx]
-    closes = [c["close"] for c in train_candles]
-    highs  = [c["high"]  for c in train_candles]
-    lows   = [c["low"]   for c in train_candles]
-
-    best_score = float("-inf")
-    best_pair = (_BEST_SMA_MIN, _BEST_SMA_MIN)
-
-    # Pre-compute all SMA arrays for the search range (training slice only).
-    sma_low_arrays:  dict[int, list] = {p: _sma(lows, p)   for p in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1)}
-    sma_high_arrays: dict[int, list] = {p: _sma(highs, p)  for p in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1)}
-
-    for sma_low in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1):
-        sma_low_vals = sma_low_arrays[sma_low]
-        short_trades = backtest_short_strategy(
-            train_candles, sma_low_vals,
-            position_size_usd=pos,
-            stop_loss_pct=sl_short / 100.0,
-        )
-        for sma_high in range(_BEST_SMA_MIN, _BEST_SMA_MAX + 1):
-            sma_high_vals = sma_high_arrays[sma_high]
-            long_trades = backtest_long_strategy(
-                train_candles, sma_high_vals,
-                position_size_usd=pos,
-                stop_loss_pct=sl_long / 100.0,
-            )
-            closed_pnl = sum(
-                t["pnl"] for t in short_trades
-                if not t["is_open"] and t["pnl"] is not None
-            ) + sum(
-                t["pnl"] for t in long_trades
-                if not t["is_open"] and t["pnl"] is not None
-            )
-            n_closed = sum(
-                1 for t in short_trades if not t["is_open"] and t["pnl"] is not None
-            ) + sum(
-                1 for t in long_trades if not t["is_open"] and t["pnl"] is not None
-            )
-            score = closed_pnl / n_closed if n_closed > 0 else float("-inf")
-            if score > best_score:
-                best_score = score
-                best_pair = (sma_low, sma_high)
-
-    return best_pair[0], best_pair[1], candles, split_idx
 
 
 # ---------------------------------------------------------------------------
@@ -594,8 +524,8 @@ async def best_sma_endpoint(
 ) -> JSONResponse:
     """Return the best (sma_low, sma_high) pair for the given symbol.
 
-    The values are read from the market-data-platform (precomputed).
-    Returns HTTP 422 if no precomputed data is available.
+    The values are read from the market-data-platform (precomputed). Returns HTTP 503
+    when precomputed data is not yet available — run import-ohlcv and compute-indicators first.
     """
     try:
         import httpx
@@ -603,24 +533,23 @@ async def best_sma_endpoint(
         resp = httpx.get(url, timeout=10.0)
         if resp.status_code == 404:
             return JSONResponse(
-                {
-                    "error": (
-                        f"No precomputed SMA data for {symbol.upper()}. "
-                        "Run compute-indicators --strategy best_sma first."
-                    )
-                },
-                status_code=422,
+                {"error": f"No precomputed best_sma for {symbol}. Run 'import-ohlcv --interval 1h' then 'compute-indicators --strategy best_sma' first."},
+                status_code=503,
             )
-        if resp.status_code != 200:
+        elif resp.status_code != 200:
             return JSONResponse(
                 {"error": f"market-data-platform returned {resp.status_code}: {resp.text}"},
                 status_code=500,
             )
-
         items = resp.json().get("items", [])
         indicator_map = {item["indicator_name"]: item["indicator_value"] for item in items}
         sma_low  = int(indicator_map["sma_low"])
         sma_high = int(indicator_map["sma_high"])
+
+        # Check OOS cache before rerunning validation.
+        oos_cached = OOS_CACHE.get((symbol.upper(), sma_low, sma_high, sl_short, sl_long, pos))
+        if oos_cached is not None:
+            return JSONResponse({"sma": sma_low, "sma_high": sma_high})
 
         # Run OOS validation locally using the returned SMA values and fresh candles.
         sym_upper = symbol.upper()
