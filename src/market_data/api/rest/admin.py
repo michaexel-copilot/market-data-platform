@@ -66,7 +66,7 @@ def run_import_ohlcv(req: ImportOhlcvRequest) -> dict:
         except SymbolNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticker_row = conn.execute(
-            "SELECT ticker FROM instruments WHERE instrument_id = ? LIMIT 1",
+            "SELECT ticker FROM instruments WHERE instrument_id = %s LIMIT 1",
             [instrument_id],
         ).fetchone()
         rows = [(instrument_id, ticker_row[0] if ticker_row else req.symbol)]
@@ -151,7 +151,7 @@ async def run_import_ohlcv_cache(req: ImportOhlcvCacheRequest) -> dict:
         SELECT ds.short_name
         FROM ohlcv_data_available oda
         JOIN data_source ds ON ds.data_source_id = oda.data_source_id
-        WHERE oda.instrument_id = ?
+        WHERE oda.instrument_id = %s
           AND oda.{col} = TRUE
           AND ds.retrieval_priority IS NOT NULL
         ORDER BY ds.retrieval_priority ASC
@@ -169,7 +169,7 @@ async def run_import_ohlcv_cache(req: ImportOhlcvCacheRequest) -> dict:
 
     # Fetch ticker for file-matching
     ticker_row = conn.execute(
-        "SELECT ticker FROM instruments WHERE instrument_id = ? LIMIT 1",
+        "SELECT ticker FROM instruments WHERE instrument_id = %s LIMIT 1",
         [req.instrument_id],
     ).fetchone()
     ticker = ticker_row[0] if ticker_row else req.instrument_id
@@ -217,7 +217,7 @@ def run_compute_indicators(req: ComputeIndicatorsRequest) -> dict:
         except SymbolNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticker_row = conn.execute(
-            "SELECT ticker FROM instruments WHERE instrument_id = ? LIMIT 1",
+            "SELECT ticker FROM instruments WHERE instrument_id = %s LIMIT 1",
             [instrument_id],
         ).fetchone()
         rows = [(instrument_id, ticker_row[0] if ticker_row else req.symbol)]
@@ -242,7 +242,7 @@ def run_compute_indicators(req: ComputeIndicatorsRequest) -> dict:
                     """
                     INSERT INTO trading_strategies
                         (instrument_id, strategy_name, indicator_name, indicator_value, parameters, computed_at)
-                    VALUES (?, ?, ?, ?, ?, now())
+                    VALUES (%s, %s, %s, %s, %s, now())
                     ON CONFLICT (instrument_id, strategy_name, indicator_name)
                     DO UPDATE SET
                         indicator_value = excluded.indicator_value,

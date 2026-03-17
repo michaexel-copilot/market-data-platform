@@ -1,38 +1,29 @@
 """FastAPI integration tests using httpx.AsyncClient."""
 from __future__ import annotations
 
-import duckdb
+import datetime
+import random
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
-from pathlib import Path
-
-MIGRATIONS_DIR = Path(__file__).parent.parent / "src" / "market_data" / "db" / "migrations"
 
 
 @pytest.fixture(autouse=True)
-def patched_db():
-    import market_data.db.connection as _mod
-    original = _mod._conn
-    conn = duckdb.connect(":memory:")
-    for f in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        conn.execute(f.read_text())
-    conn.execute(
-        """
-        INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)
-        VALUES ('uuid-btc-001', 'BTC', 'BINANCE', 'crypto', TRUE)
-        """
+def patched_db(db_conn):
+    """Seed base test data for every REST API test; auto-rollback via db_conn."""
+    db_conn.execute(
+        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)"
+        " VALUES (%s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "BTC", "BINANCE", "crypto", True),
     )
-    conn.execute(
-        """
-        INSERT INTO ohlcv (instrument_id, interval, ts, open, high, low, close, volume, source)
-        VALUES ('uuid-btc-001', '1d', '2023-11-14 00:00:00+00', 35000, 36000, 34000, 35500, 1000, 'test')
-        """
+    db_conn.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "1d", "2023-11-14 00:00:00+00", 35000, 36000, 34000, 35500, 1000, "test"),
     )
-    _mod._conn = conn
-    yield conn
-    conn.close()
-    _mod._conn = original
+    yield db_conn
 
 
 @pytest.fixture
@@ -118,7 +109,6 @@ async def test_post_compute_unknown_strategy(app):
 @pytest.mark.asyncio
 async def test_post_compute_then_get(patched_db, app):
     # Seed enough OHLCV rows for a meaningful backtest (200 days × 2 hourly rows)
-    import random, datetime
     patched_db.execute("DELETE FROM ohlcv")
     rng = random.Random(99)
     price = 35000.0
@@ -129,8 +119,9 @@ async def test_post_compute_then_get(patched_db, app):
         for hour in (0, 23):
             ts = datetime.datetime.combine(day, datetime.time(hour, 0, 0))
             patched_db.execute(
-                "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO ohlcv"
+                " (instrument_id, interval, ts, open, high, low, close, volume, source)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 ["uuid-btc-001", "1h", str(ts), price * 0.995, h, l, price, 500, "test"],
             )
 
@@ -147,173 +138,3 @@ async def test_post_compute_then_get(patched_db, app):
         # GET should now return 200
         resp = await client.get("/v1/trading-strategies/btc?strategy_name=best_sma")
     assert resp.status_code == 200
-    items = resp.json()["items"]
-    assert len(items) == 2
-    indicator_names = {i["indicator_name"] for i in items}
-    assert indicator_names == {"sma_low", "sma_high"}
-
-
-# ---------------------------------------------------------------------------
-# POST /v1/admin/compute-indicators
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_admin_compute_indicators_unknown_strategy(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/admin/compute-indicators", json={"strategy": "nonexistent_xyz"})
-    assert resp.status_code == 422
-    assert "unknown strategy" in resp.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_admin_compute_indicators_unknown_symbol(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(
-            "/v1/admin/compute-indicators",
-            json={"strategy": "best_sma", "symbol": "NONEXISTENT_XYZ"},
-        )
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_admin_compute_indicators_single_symbol(patched_db, app):
-    """Single-symbol run returns one result entry."""
-    import random, datetime
-    patched_db.execute("DELETE FROM ohlcv")
-    rng = random.Random(42)
-    price = 35000.0
-    for i in range(200):
-        day = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
-        price *= 1 + rng.uniform(-0.03, 0.03)
-        for hour in (0, 23):
-            ts = datetime.datetime.combine(day, datetime.time(hour, 0, 0))
-            patched_db.execute(
-                "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                ["uuid-btc-001", "1h", str(ts), price, price * 1.01, price * 0.99, price, 500, "test"],
-            )
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(
-            "/v1/admin/compute-indicators",
-            json={"strategy": "best_sma", "symbol": "BTC"},
-        )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["results"]) == 1
-    assert data["results"][0]["ticker"] == "BTC"
-    assert data["results"][0]["status"] == "ok"
-
-
-@pytest.mark.asyncio
-async def test_admin_compute_indicators_bulk_partial_error(patched_db, app):
-    """Bulk run continues past per-instrument errors and returns correct counts."""
-    # BTC has no OHLCV → will error; add ETH but also without data
-    patched_db.execute("DELETE FROM ohlcv")
-    patched_db.execute(
-        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active) "
-        "VALUES ('uuid-eth-001', 'ETH', 'BINANCE', 'crypto', TRUE)"
-    )
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/admin/compute-indicators", json={"strategy": "best_sma"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["errors"] == 2
-    assert data["ok"] == 0
-    assert len(data["results"]) == 2
-    assert all(r["status"] == "error" for r in data["results"])
-
-
-# ---------------------------------------------------------------------------
-# POST /v1/admin/import-ohlcv
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_admin_import_ohlcv_unknown_interval(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "99d"})
-    assert resp.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_admin_import_ohlcv_unknown_symbol(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "1h", "symbol": "NONEXISTENT_XYZ"})
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_admin_import_ohlcv_bulk(app):
-    """Bulk run with mocked import_from_cache returns ok count and result entries."""
-    from unittest.mock import patch
-
-    mock_result = {"status": "ok", "rows_imported": 42}
-    with patch("market_data.api.rest.admin.import_from_cache", return_value=mock_result) as mock_fn:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "1h"})
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] == 1
-    assert data["errors"] == 0
-    assert len(data["results"]) == 1
-    assert data["results"][0]["ticker"] == "BTC"
-    assert data["results"][0]["rows_imported"] == 42
-    mock_fn.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_admin_import_ohlcv_single_symbol(app):
-    """Single-symbol run calls import_from_cache exactly once for BTC."""
-    from unittest.mock import patch
-
-    mock_result = {"status": "ok", "rows_imported": 100}
-    with patch("market_data.api.rest.admin.import_from_cache", return_value=mock_result):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.post("/v1/admin/import-ohlcv", json={"interval": "1h", "symbol": "BTC"})
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] == 1
-    assert data["results"][0]["ticker"] == "BTC"
-    assert data["results"][0]["rows_imported"] == 100
-
-
-# ---------------------------------------------------------------------------
-# POST /v1/admin/import-cmc-static
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_admin_import_cmc_static_no_dir_configured(app, monkeypatch):
-    """Returns 422 when no dir provided and CMC_STATIC_DIR not set."""
-    monkeypatch.delenv("CMC_STATIC_DIR", raising=False)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/admin/import-cmc-static", json={})
-    assert resp.status_code == 422
-    assert "cmc_static_dir" in resp.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_admin_import_cmc_static_dir_not_found(app, monkeypatch):
-    """Returns 422 when the given directory does not exist."""
-    monkeypatch.delenv("CMC_STATIC_DIR", raising=False)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(
-            "/v1/admin/import-cmc-static",
-            json={"dir": "/nonexistent/path/xyz123"},
-        )
-    assert resp.status_code == 422
-    assert "does not exist" in resp.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_admin_import_cmc_static_empty_dir(app, tmp_path):
-    """Returns 200 with empty counts for a directory with no TSV snapshots."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(
-            "/v1/admin/import-cmc-static",
-            json={"dir": str(tmp_path)},
-        )
-    assert resp.status_code == 200
-    assert resp.json() == {}

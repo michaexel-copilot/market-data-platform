@@ -14,8 +14,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-import duckdb
-
 logger = logging.getLogger(__name__)
 
 # Canonical CMC data source ID as seeded by migration 012_data_source.sql
@@ -28,7 +26,7 @@ _ALL_CRYPTO_ATTRS = _CRYPTO_NUMERIC_ATTRS + _CRYPTO_STR_ATTRS
 _INSTRUMENT_ATTRS = ("full_name",)
 
 
-def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
+def migrate_fundamentals(conn) -> dict:
     """Promote latest CMC snapshot data into canonical tables.
 
     Returns a dict with keys ``promoted``, ``skipped``, ``errors``.
@@ -75,7 +73,7 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
                            ORDER BY COALESCE(cmc_rank, 999999) ASC
                        ) AS rn
                 FROM cmc_listing_snapshots
-                WHERE snapshot_ts = ?
+                WHERE snapshot_ts = %s
             ) sub
             WHERE rn = 1
         ),
@@ -91,6 +89,7 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
         conn.execute(
             f"{_cleanup_cte} DELETE FROM {dep_table} WHERE instrument_id IN (SELECT instrument_id FROM wrong_ids)",
             [latest_ts],
+
         )
     conn.execute(
         f"{_cleanup_cte} DELETE FROM instruments WHERE instrument_id IN (SELECT instrument_id FROM wrong_ids)",
@@ -103,7 +102,7 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
     # canonical slug for each symbol is always the best-ranked listing entry.
     conn.execute(
         """
-        INSERT OR IGNORE INTO instruments
+        INSERT INTO instruments
             (instrument_id, ticker, full_name, asset_class, is_active, first_seen_at, last_updated_at)
         SELECT slug, symbol, name, 'crypto', TRUE, now(), now()
         FROM (
@@ -113,19 +112,21 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
                        ORDER BY COALESCE(cmc_rank, 999999) ASC
                    ) AS rn
             FROM cmc_listing_snapshots
-            WHERE snapshot_ts = ?
+            WHERE snapshot_ts = %s
               AND slug IS NOT NULL
               AND symbol IS NOT NULL
         ) sub
         WHERE rn = 1
+        ON CONFLICT (instrument_id) DO NOTHING
         """,
         [latest_ts],
     )
     # Ensure instrument_crypto rows exist for all crypto instruments
     conn.execute(
         """
-        INSERT OR IGNORE INTO instrument_crypto (instrument_id)
+        INSERT INTO instrument_crypto (instrument_id)
         SELECT instrument_id FROM instruments WHERE asset_class = 'crypto'
+        ON CONFLICT (instrument_id) DO NOTHING
         """
     )
     logger.info("Ensured instrument rows from snapshot")
@@ -145,7 +146,7 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
                            ORDER BY COALESCE(cmc_rank, 999999) ASC
                        ) AS rn
                 FROM cmc_listing_snapshots
-                WHERE snapshot_ts = ?
+                WHERE snapshot_ts = %s
             ) sub
             WHERE rn = 1
         )
@@ -192,14 +193,14 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
             # ── Update instruments.full_name if missing ──────────────────
             if cmc_name and not current_full_name:
                 conn.execute(
-                    "UPDATE instruments SET full_name = ?, last_updated_at = ? WHERE instrument_id = ?",
+                    "UPDATE instruments SET full_name = %s, last_updated_at = %s WHERE instrument_id = %s",
                     [cmc_name, now, instrument_id],
                 )
                 attrs_updated.append("full_name")
 
             # ── Ensure instrument_crypto row exists ──────────────────────
             conn.execute(
-                "INSERT OR IGNORE INTO instrument_crypto (instrument_id) VALUES (?)",
+                "INSERT INTO instrument_crypto (instrument_id) VALUES (%s) ON CONFLICT (instrument_id) DO NOTHING",
                 [instrument_id],
             )
 
@@ -219,10 +220,10 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
                 update_fields.append(("circulating_supply", float(circulating_supply_val)))
 
             if update_fields:
-                set_clause = ", ".join(f"{col} = ?" for col, _ in update_fields)
+                set_clause = ", ".join(f"{col} = %s" for col, _ in update_fields)
                 values = [v for _, v in update_fields] + [instrument_id]
                 conn.execute(
-                    f"UPDATE instrument_crypto SET {set_clause} WHERE instrument_id = ?",
+                    f"UPDATE instrument_crypto SET {set_clause} WHERE instrument_id = %s",
                     values,
                 )
                 attrs_updated.extend(col for col, _ in update_fields)
@@ -232,7 +233,7 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
                 conn.execute(
                     """
                     INSERT INTO attribute_source_map (instrument_id, attribute_name, data_source_id, last_updated_at)
-                    VALUES (?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT (instrument_id, attribute_name)
                     DO UPDATE SET data_source_id = excluded.data_source_id,
                                   last_updated_at = excluded.last_updated_at
@@ -245,7 +246,7 @@ def migrate_fundamentals(conn: duckdb.DuckDBPyConnection) -> dict:
                 conn.execute(
                     """
                     INSERT INTO ticker_source_map (instrument_id, data_source_id, source_ticker, is_canonical)
-                    VALUES (?, ?, ?, FALSE)
+                    VALUES (%s, %s, %s, FALSE)
                     ON CONFLICT (instrument_id, data_source_id)
                     DO UPDATE SET source_ticker = excluded.source_ticker
                     """,

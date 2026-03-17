@@ -1,4 +1,4 @@
-"""Ingestion writer — persists OHLCV records and instrument records to DuckDB."""
+"""Ingestion writer — persists OHLCV records and instrument records to PostgreSQL."""
 from __future__ import annotations
 
 import logging
@@ -46,7 +46,7 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
         INSERT INTO ohlcv
             (instrument_id, interval, ts, open, high, low, close,
              volume, vwap, trade_count, market_cap, source, ingested_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
             open       = excluded.open,
             high       = excluded.high,
@@ -100,7 +100,7 @@ def write_instruments(records: list[InstrumentRecord]) -> int:
             (instrument_id, ticker, full_name, description, asset_class, exchange,
              sector, industry, quote_currency, launch_date, is_active, logo_url,
              website_url, last_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (instrument_id) DO UPDATE SET
             ticker           = excluded.ticker,
             full_name        = COALESCE(excluded.full_name, instruments.full_name),

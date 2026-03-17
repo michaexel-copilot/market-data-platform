@@ -39,7 +39,7 @@ def compute_best_sma(instrument_id: str, parameters: dict | None = None) -> dict
                 MIN(low)                                     AS low,
                 SUM(volume)                                  AS volume
             FROM ohlcv
-            WHERE instrument_id = ? AND interval = '1h'
+            WHERE instrument_id = %s AND interval = '1h'
             GROUP BY DATE_TRUNC('day', ts)
         )
         SELECT
@@ -49,10 +49,10 @@ def compute_best_sma(instrument_id: str, parameters: dict | None = None) -> dict
             d.low,
             o_close.close
         FROM daily d
-        JOIN ohlcv o_open  ON o_open.instrument_id  = ?
+        JOIN ohlcv o_open  ON o_open.instrument_id  = %s
                           AND o_open.interval        = '1h'
                           AND o_open.ts              = d.first_ts
-        JOIN ohlcv o_close ON o_close.instrument_id = ?
+        JOIN ohlcv o_close ON o_close.instrument_id = %s
                           AND o_close.interval       = '1h'
                           AND o_close.ts             = d.last_ts
         ORDER BY d.day ASC

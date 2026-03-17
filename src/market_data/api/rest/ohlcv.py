@@ -33,13 +33,13 @@ async def get_ohlcv(
         until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
 
     conn = get_connection()
-    conditions = ["instrument_id = ?", "interval = ?"]
+    conditions = ["instrument_id = %s", "interval = %s"]
     params: list = [instrument_id, str(interval)]
     if since_dt:
-        conditions.append("ts >= ?")
+        conditions.append("ts >= %s")
         params.append(since_dt)
     if until_dt:
-        conditions.append("ts <= ?")
+        conditions.append("ts <= %s")
         params.append(until_dt)
 
     where = " AND ".join(conditions)
@@ -54,7 +54,7 @@ async def get_ohlcv(
         FROM ohlcv
         WHERE {where}
         ORDER BY ts ASC
-        LIMIT ? OFFSET ?
+        LIMIT %s OFFSET %s
         """,
         params + [page_size, offset],
     ).fetchall()

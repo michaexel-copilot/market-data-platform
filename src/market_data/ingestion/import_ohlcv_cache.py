@@ -8,8 +8,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-import duckdb
-
 from market_data.models.enums import Interval
 from market_data.models.ohlcv import OHLCVRecord
 
@@ -136,68 +134,23 @@ def _insert_file_fast(
     instrument_id: str,
     interval: str,
     source_short_name: str,
-    conn: duckdb.DuckDBPyConnection,
+    conn,  # kept for API compatibility; not used directly (write_ohlcv uses get_connection())
 ) -> int:
-    """Bulk-insert a single cached file into ``ohlcv`` using DuckDB-native table functions.
+    """Parse a cached OHLCV file and upsert records into ``ohlcv`` via write_ohlcv.
 
-    Returns the number of rows inserted/updated.
+    Returns the number of records processed.
     """
-    path_str = str(path)
+    from market_data.ingestion.writer import write_ohlcv
+
     is_json = path.suffix.lower() == ".json"
-
     if is_json:
-        src = f"read_json('{path_str}', format='array')"
+        records = _parse_json(path, instrument_id, interval, source_short_name)
     else:
-        src = f"read_csv_auto('{path_str}', header=true)"
+        records = _parse_csv(path, instrument_id, interval, source_short_name)
 
-    # Detect available columns so we can handle optional fields gracefully
-    columns = {
-        row[0].lower()
-        for row in conn.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()
-    }
-
-    # Timestamp expression — intraday files use "datetime", EOD files use "date"
-    if "datetime" in columns:
-        ts_expr = "TIMEZONE('UTC', TRY_CAST(\"datetime\" AS TIMESTAMP))"
-    else:
-        ts_expr = "TIMEZONE('UTC', TRY_CAST(\"date\" AS TIMESTAMP))"
-
-    def _col(name: str, cast: str = "DOUBLE") -> str:
-        return f"TRY_CAST(\"{name}\" AS {cast})" if name in columns else "NULL"
-
-    sql = f"""
-        INSERT INTO ohlcv
-            (instrument_id, interval, ts, open, high, low, close,
-             volume, vwap, trade_count, market_cap, source)
-        SELECT
-            '{instrument_id}',
-            '{interval}',
-            {ts_expr},
-            {_col('open')},
-            {_col('high')},
-            {_col('low')},
-            {_col('close')},
-            {_col('volume')},
-            {_col('vwap')},
-            {_col('trade_count', 'BIGINT')},
-            {_col('market_cap')},
-            '{source_short_name}'
-        FROM {src}
-        ON CONFLICT (instrument_id, interval, ts)
-        DO UPDATE SET
-            open         = EXCLUDED.open,
-            high         = EXCLUDED.high,
-            low          = EXCLUDED.low,
-            close        = EXCLUDED.close,
-            volume       = COALESCE(EXCLUDED.volume,      ohlcv.volume),
-            vwap         = COALESCE(EXCLUDED.vwap,        ohlcv.vwap),
-            trade_count  = COALESCE(EXCLUDED.trade_count, ohlcv.trade_count),
-            market_cap   = COALESCE(EXCLUDED.market_cap,  ohlcv.market_cap),
-            source       = EXCLUDED.source
-    """
-    row_count: int = conn.execute(f"SELECT COUNT(*) FROM {src}").fetchone()[0]  # type: ignore[index]
-    conn.execute(sql)
-    return row_count
+    if records:
+        write_ohlcv(records)
+    return len(records)
 
 
 def import_from_cache(
@@ -205,7 +158,7 @@ def import_from_cache(
     ticker: str,
     source_short_name: str,
     interval: str,
-    conn: duckdb.DuckDBPyConnection,
+    conn,  # kept for API compatibility; not used directly
 ) -> dict:
     """Import OHLCV data for *instrument_id* from the local cache folder.
 

@@ -1,6 +1,11 @@
 # Database Schema
 
-The platform uses a single [DuckDB](https://duckdb.org/) file. Its path is configured via `DUCKDB_PATH` in `.env` (default: `/appdata/market-data-platform/db/market_data.duckdb`).
+The platform uses [PostgreSQL 16](https://www.postgresql.org/) with the [TimescaleDB 2](https://www.timescale.com/) extension for time-series optimisation.
+The connection is configured via `DATABASE_URL` in `.env`:
+
+```
+DATABASE_URL=postgresql://market_data:<password>@localhost/market_data_platform
+```
 
 Run migrations with:
 
@@ -9,6 +14,8 @@ uv run migrate
 ```
 
 Migrations are idempotent — already-applied files are skipped. Applied files are tracked in the [`_migrations`](#_migrations) table.
+
+The `ohlcv` and `cmc_listing_snapshots` tables are **TimescaleDB hypertables** with automatic chunk compression (ohlcv: 7-day policy). `ohlcv_weekly` and `ohlcv_monthly` are continuous aggregates that refresh automatically.
 
 ---
 
@@ -44,8 +51,8 @@ instruments ──┬──< instrument_identifiers
               └──── instrument_commodity
 
 ohlcv (no FK — instrument_id links by convention)
-ohlcv_weekly  (view over ohlcv WHERE interval='1d')
-ohlcv_monthly (view over ohlcv WHERE interval='1d')
+ohlcv_weekly  (continuous aggregate over ohlcv WHERE interval='1d')
+ohlcv_monthly (continuous aggregate over ohlcv WHERE interval='1d')
 
 trading_strategies (no FK — instrument_id links by convention)
 ```
@@ -201,7 +208,9 @@ Commodity/futures attributes. One row per commodity instrument.
 
 ### ohlcv
 
-All OHLCV candle data for all instruments and intervals. Primary key enforces deduplication; re-ingestion of the same candle replaces the existing row (`INSERT OR REPLACE`).
+All OHLCV candle data for all instruments and intervals. This is a **TimescaleDB hypertable** partitioned by `ts` (monthly chunks) with a secondary hash dimension on `instrument_id` (4 partitions). Compression is applied automatically to chunks older than 7 days.
+
+Primary key enforces deduplication; re-ingestion of the same candle replaces the existing row (`INSERT … ON CONFLICT DO NOTHING`).
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
@@ -227,9 +236,9 @@ All OHLCV candle data for all instruments and intervals. Primary key enforces de
 
 ---
 
-### ohlcv_weekly (view)
+### ohlcv_weekly (continuous aggregate)
 
-A live (non-materialised) DuckDB view derived from `ohlcv WHERE interval = '1d'`. Aggregates daily candles into Monday-aligned weekly buckets.
+A TimescaleDB **continuous aggregate** (materialised, auto-refreshed) derived from `ohlcv WHERE interval = '1d'`. Aggregates daily candles into Monday-aligned weekly buckets using `time_bucket('1 week', ts)`.
 
 | Column | Aggregation |
 |---|---|
@@ -249,9 +258,9 @@ A live (non-materialised) DuckDB view derived from `ohlcv WHERE interval = '1d'`
 
 ---
 
-### ohlcv_monthly (view)
+### ohlcv_monthly (continuous aggregate)
 
-A live (non-materialised) DuckDB view derived from `ohlcv WHERE interval = '1d'`. Aggregates daily candles into calendar-month buckets.
+A TimescaleDB **continuous aggregate** (materialised, auto-refreshed) derived from `ohlcv WHERE interval = '1d'`. Aggregates daily candles into calendar-month buckets using `time_bucket('1 month', ts)`.
 
 | Column | Aggregation |
 |---|---|
@@ -283,7 +292,7 @@ Pre-computed indicator values produced by trading strategy algorithms. Used as a
 | `strategy_name` | VARCHAR | NOT NULL | Registered strategy identifier (e.g. `best_sma`) |
 | `indicator_name` | VARCHAR | NOT NULL | Name of the output indicator (e.g. `sma_low`, `sma_high`) |
 | `indicator_value` | DOUBLE | NOT NULL | Computed numeric value of the indicator |
-| `parameters` | JSON | yes | Strategy parameters used during computation (e.g. `{"sl_short": 10, "sl_long": 10, "pos_usd": 100}`) |
+| `parameters` | TEXT | yes | JSON-encoded strategy parameters used during computation (e.g. `{"sl_short": 10, "sl_long": 10, "pos_usd": 100}`) |
 | `computed_at` | TIMESTAMPTZ | NOT NULL | UTC timestamp when this row was last written (default: `now()`) |
 
 **Indexes**
@@ -306,5 +315,5 @@ Tracks which migration files have been applied. Managed automatically by `migrat
 
 | Column | Type | Description |
 |---|---|---|
-| `filename` | VARCHAR (PK) | Migration filename (e.g. `001_instruments.sql`) |
+| `filename` | TEXT (PK) | Migration filename (e.g. `001_instruments.sql`) |
 | `applied_at` | TIMESTAMPTZ | UTC timestamp when the migration was applied |

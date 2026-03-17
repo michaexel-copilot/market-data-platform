@@ -46,7 +46,7 @@ async def backfill(
         from market_data.db.connection import get_connection as _gc
         db = _gc()
         rows = db.execute(
-            "SELECT instrument_id FROM instruments WHERE asset_class = ? AND is_active = TRUE",
+            "SELECT instrument_id FROM instruments WHERE asset_class = %s AND is_active = TRUE",
             [str(asset_class)],
         ).fetchall()
         instrument_ids = [r[0] for r in rows]

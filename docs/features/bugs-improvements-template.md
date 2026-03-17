@@ -30,7 +30,7 @@
 
 
 ## Step 4 archive
-[ ] /ospx-archive best-sma-will-not-show
+[ ] /ospx-archive {bug-or-improvement}
 [ ] documentation up to date
 
 ## Step 5  

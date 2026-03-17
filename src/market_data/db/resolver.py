@@ -1,4 +1,4 @@
-"""Symbol resolver — three-step priority lookup in DuckDB.
+"""Symbol resolver — three-step priority lookup in PostgreSQL.
 
 Resolution order:
 1. Exact UUID match against instruments.instrument_id
@@ -33,7 +33,7 @@ def resolve_symbol(
 
     # --- Step 1: exact instrument_id (UUID) match ---
     rows = conn.execute(
-        "SELECT instrument_id FROM instruments WHERE instrument_id = ?",
+        "SELECT instrument_id FROM instruments WHERE instrument_id = %s",
         [symbol],
     ).fetchall()
     if rows:
@@ -43,10 +43,10 @@ def resolve_symbol(
     if "." in symbol:
         parts = symbol.rsplit(".", 1)
         ticker, exchange = parts[0].upper(), parts[1].upper()
-        query = "SELECT instrument_id FROM instruments WHERE upper(ticker) = ? AND upper(exchange) = ?"
+        query = "SELECT instrument_id FROM instruments WHERE upper(ticker) = %s AND upper(exchange) = %s"
         params: list[str] = [ticker, exchange]
         if asset_class is not None:
-            query += " AND asset_class = ?"
+            query += " AND asset_class = %s"
             params.append(str(asset_class))
         rows = conn.execute(query, params).fetchall()
         if len(rows) == 1:
@@ -56,10 +56,10 @@ def resolve_symbol(
 
     # --- Step 3: loose ticker match ---
     ticker_upper = symbol.upper().split(".")[0]  # strip exchange suffix if present
-    query = "SELECT instrument_id FROM instruments WHERE upper(ticker) = ?"
+    query = "SELECT instrument_id FROM instruments WHERE upper(ticker) = %s"
     params = [ticker_upper]
     if asset_class is not None:
-        query += " AND asset_class = ?"
+        query += " AND asset_class = %s"
         params.append(str(asset_class))
     rows = conn.execute(query, params).fetchall()
     if len(rows) == 1:

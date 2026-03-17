@@ -35,13 +35,13 @@ async def list_instruments(
     page_size: int = Query(default=50, ge=1, le=5000),
 ) -> PaginatedResponse:
     conn = get_connection()
-    conditions = ["is_active = ?"]
+    conditions = ["is_active = %s"]
     params: list = [is_active]
     if asset_class:
-        conditions.append("asset_class = ?")
+        conditions.append("asset_class = %s")
         params.append(str(asset_class))
     if q:
-        conditions.append("(upper(ticker) LIKE upper(?) OR upper(full_name) LIKE upper(?))")
+        conditions.append("(upper(ticker) LIKE upper(%s) OR upper(full_name) LIKE upper(%s))")
         pattern = f"%{q}%"
         params.extend([pattern, pattern])
 
@@ -57,7 +57,7 @@ async def list_instruments(
                website_url, first_seen_at, last_updated_at
         FROM instruments WHERE {where}
         ORDER BY ticker
-        LIMIT ? OFFSET ?
+        LIMIT %s OFFSET %s
         """,
         params + [page_size, offset],
     ).fetchall()
@@ -77,7 +77,7 @@ async def get_instrument(symbol: str) -> dict:
         SELECT instrument_id, ticker, full_name, description, asset_class, exchange,
                sector, industry, quote_currency, launch_date, is_active, logo_url,
                website_url, first_seen_at, last_updated_at
-        FROM instruments WHERE instrument_id = ?
+        FROM instruments WHERE instrument_id = %s
         """,
         [instrument_id],
     ).fetchone()
@@ -92,7 +92,7 @@ async def get_fundamentals(symbol: str) -> dict:
     instrument_id = resolve_symbol(symbol)
     conn = get_connection()
     base_row = conn.execute(
-        "SELECT instrument_id, asset_class FROM instruments WHERE instrument_id = ?",
+        "SELECT instrument_id, asset_class FROM instruments WHERE instrument_id = %s",
         [instrument_id],
     ).fetchone()
     if not base_row:
@@ -109,12 +109,12 @@ async def get_fundamentals(symbol: str) -> dict:
     }
     table = table_map.get(asset_class)
     if table:
-        row = conn.execute(
-            f"SELECT * FROM {table} WHERE instrument_id = ?", [instrument_id]
-        ).fetchone()
+        cur = conn.execute(
+            f"SELECT * FROM {table} WHERE instrument_id = %s", [instrument_id]
+        )
+        row = cur.fetchone()
         if row:
-            desc = conn.execute(f"DESCRIBE {table}").fetchall()
-            cols = [d[0] for d in desc]
+            cols = [d.name for d in cur.description]
             result[asset_class] = dict(zip(cols, row))
     return result
 
@@ -134,7 +134,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
 
     # Verify instrument exists
     if not conn.execute(
-        "SELECT 1 FROM instruments WHERE instrument_id = ?", [instrument_id]
+        "SELECT 1 FROM instruments WHERE instrument_id = %s", [instrument_id]
     ).fetchone():
         raise SymbolNotFoundError(symbol)
 
@@ -147,7 +147,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
                MIN(ts) AS first_ts,
                MAX(ts) AS last_ts
         FROM ohlcv
-        WHERE instrument_id = ?
+        WHERE instrument_id = %s
         GROUP BY interval
         """,
         [instrument_id],
@@ -158,7 +158,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
 
     # ── 1w — ohlcv_weekly view ───────────────────────────────────────────
     row = conn.execute(
-        "SELECT MIN(ts), MAX(ts) FROM ohlcv_weekly WHERE instrument_id = ?",
+        "SELECT MIN(ts), MAX(ts) FROM ohlcv_weekly WHERE instrument_id = %s",
         [instrument_id],
     ).fetchone()
     if row and row[0] is not None:
@@ -173,7 +173,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
                    ((EXTRACT(DOW FROM DATE_TRUNC('week', ts))::INTEGER + 6) % 7
                     % 4) * INTERVAL '7 days' AS week_bucket
             FROM ohlcv
-            WHERE instrument_id = ? AND interval = '1d'
+            WHERE instrument_id = %s AND interval = '1d'
         ) sub
         WHERE week_bucket IS NOT NULL
         """,
@@ -184,7 +184,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
 
     # ── 1mth — ohlcv_monthly view ────────────────────────────────────────
     row = conn.execute(
-        "SELECT MIN(ts), MAX(ts) FROM ohlcv_monthly WHERE instrument_id = ?",
+        "SELECT MIN(ts), MAX(ts) FROM ohlcv_monthly WHERE instrument_id = %s",
         [instrument_id],
     ).fetchone()
     if row and row[0] is not None:
@@ -195,7 +195,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
         """
         SELECT MIN(DATE_TRUNC('year', ts)), MAX(DATE_TRUNC('year', ts))
         FROM ohlcv
-        WHERE instrument_id = ? AND interval = '1d'
+        WHERE instrument_id = %s AND interval = '1d'
         """,
         [instrument_id],
     ).fetchone()
@@ -207,7 +207,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
         """
         SELECT MIN(ts), MAX(ts)
         FROM ohlcv
-        WHERE instrument_id = ? AND interval = '1d'
+        WHERE instrument_id = %s AND interval = '1d'
           AND ts >= DATE_TRUNC('year', now())
         """,
         [instrument_id],
@@ -231,7 +231,7 @@ async def get_ohlcv_data_available(symbol: str) -> dict:
     conn = get_connection()
 
     if not conn.execute(
-        "SELECT 1 FROM instruments WHERE instrument_id = ?", [instrument_id]
+        "SELECT 1 FROM instruments WHERE instrument_id = %s", [instrument_id]
     ).fetchone():
         raise SymbolNotFoundError(symbol)
 
@@ -240,7 +240,7 @@ async def get_ohlcv_data_available(symbol: str) -> dict:
         SELECT ds.short_name, oda.has_1m, oda.has_5m, oda.has_1h, oda.has_1d
         FROM ohlcv_data_available oda
         JOIN data_source ds ON ds.data_source_id = oda.data_source_id
-        WHERE oda.instrument_id = ?
+        WHERE oda.instrument_id = %s
         ORDER BY ds.retrieval_priority NULLS LAST, ds.short_name
         """,
         [instrument_id],

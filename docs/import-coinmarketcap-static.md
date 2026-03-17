@@ -1,6 +1,6 @@
 # CoinMarketCap Static Data Importer
 
-Batch import of pre-downloaded CoinMarketCap TSV snapshot files into the DuckDB database.
+Batch import of pre-downloaded CoinMarketCap TSV snapshot files into the PostgreSQL database.
 
 ## Overview
 
@@ -63,7 +63,7 @@ market-data import-cmc-static /path/to/data --dry-run
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CMC_STATIC_DIR` | — | Default snapshot directory (used if no `DIR` argument is given) |
-| `DUCKDB_PATH` | `/appdata/market-data-platform/db/market_data.duckdb` | Path to the DuckDB database file |
+| `DATABASE_URL` | `postgresql://market_data:market_data@localhost/market_data_platform` | PostgreSQL connection string |
 
 ## Idempotency
 

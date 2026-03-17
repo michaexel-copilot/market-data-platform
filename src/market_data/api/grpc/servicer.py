@@ -39,19 +39,19 @@ class MarketDataServicer(MarketDataServiceServicer):
         self, request: pb2.ListInstrumentsRequest, context: grpc.ServicerContext
     ) -> pb2.ListInstrumentsResponse:
         conn = get_connection()
-        conditions = ["is_active = ?"]
+        conditions = ["is_active = %s"]
         params: list = [request.is_active if request.HasField("is_active") else True]  # type: ignore[attr-defined]
 
         # In proto3 bools default to False; treat unset as "active only = True"
         params = [True]
-        conditions = ["is_active = ?"]
+        conditions = ["is_active = %s"]
 
         if request.asset_class != pb2.ASSET_CLASS_UNSPECIFIED:
             ac_name = pb2.AssetClass.Name(request.asset_class).replace("ASSET_CLASS_", "").lower()
-            conditions.append("asset_class = ?")
+            conditions.append("asset_class = %s")
             params.append(ac_name)
         if request.q:
-            conditions.append("(upper(ticker) LIKE upper(?) OR upper(full_name) LIKE upper(?))")
+            conditions.append("(upper(ticker) LIKE upper(%s) OR upper(full_name) LIKE upper(%s))")
             pattern = f"%{request.q}%"
             params.extend([pattern, pattern])
 
@@ -65,7 +65,7 @@ class MarketDataServicer(MarketDataServiceServicer):
             SELECT instrument_id, ticker, full_name, description, asset_class, exchange,
                    sector, industry, quote_currency, launch_date, is_active, logo_url, website_url
             FROM instruments WHERE {where}
-            ORDER BY ticker LIMIT ? OFFSET ?
+            ORDER BY ticker LIMIT %s OFFSET %s
             """,
             params + [page_size, offset],
         ).fetchall()
@@ -96,7 +96,7 @@ class MarketDataServicer(MarketDataServiceServicer):
             """
             SELECT instrument_id, ticker, full_name, description, asset_class, exchange,
                    sector, industry, quote_currency, launch_date, is_active, logo_url, website_url
-            FROM instruments WHERE instrument_id = ?
+            FROM instruments WHERE instrument_id = %s
             """,
             [instrument_id],
         ).fetchone()
@@ -135,15 +135,15 @@ class MarketDataServicer(MarketDataServiceServicer):
         interval_str = interval_map.get(iv_name, "1d")
 
         conn = get_connection()
-        conditions = ["instrument_id = ?", "interval = ?"]
+        conditions = ["instrument_id = %s", "interval = %s"]
         params: list = [instrument_id, interval_str]
         if request.since:
             from datetime import datetime
-            conditions.append("ts >= ?")
+            conditions.append("ts >= %s")
             params.append(datetime.fromisoformat(request.since.replace("Z", "+00:00")))
         if request.until:
             from datetime import datetime
-            conditions.append("ts <= ?")
+            conditions.append("ts <= %s")
             params.append(datetime.fromisoformat(request.until.replace("Z", "+00:00")))
 
         where = " AND ".join(conditions)
@@ -187,7 +187,7 @@ class MarketDataServicer(MarketDataServiceServicer):
 
         conn = get_connection()
         base = conn.execute(
-            "SELECT asset_class FROM instruments WHERE instrument_id = ?", [instrument_id]
+            "SELECT asset_class FROM instruments WHERE instrument_id = %s", [instrument_id]
         ).fetchone()
         if not base:
             context.set_code(grpc.StatusCode.NOT_FOUND)
@@ -198,12 +198,12 @@ class MarketDataServicer(MarketDataServiceServicer):
         resp = pb2.FundamentalsResponse(instrument_id=instrument_id)
 
         if asset_class == "crypto":
-            row = conn.execute(
-                "SELECT * FROM instrument_crypto WHERE instrument_id = ?", [instrument_id]
-            ).fetchone()
+            cur = conn.execute(
+                "SELECT * FROM instrument_crypto WHERE instrument_id = %s", [instrument_id]
+            )
+            row = cur.fetchone()
             if row:
-                desc = conn.execute("DESCRIBE instrument_crypto").fetchall()
-                cols = [d[0] for d in desc]
+                cols = [d.name for d in cur.description]
                 d = dict(zip(cols, row))
                 resp.crypto.CopyFrom(
                     pb2.CryptoFundamentals(
@@ -216,12 +216,12 @@ class MarketDataServicer(MarketDataServiceServicer):
                     )
                 )
         elif asset_class in ("equity", "etf"):
-            row = conn.execute(
-                "SELECT * FROM instrument_equity WHERE instrument_id = ?", [instrument_id]
-            ).fetchone()
+            cur = conn.execute(
+                "SELECT * FROM instrument_equity WHERE instrument_id = %s", [instrument_id]
+            )
+            row = cur.fetchone()
             if row:
-                desc = conn.execute("DESCRIBE instrument_equity").fetchall()
-                cols = [d[0] for d in desc]
+                cols = [d.name for d in cur.description]
                 d = dict(zip(cols, row))
                 resp.equity.CopyFrom(
                     pb2.EquityFundamentals(

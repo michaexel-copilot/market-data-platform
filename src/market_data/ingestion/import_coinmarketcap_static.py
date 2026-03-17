@@ -1,4 +1,4 @@
-"""Import CoinMarketCap static TSV snapshots into DuckDB.
+"""Import CoinMarketCap static TSV snapshots into PostgreSQL.
 
 File patterns (all share a ``<date>_<time>`` prefix):
 - ``<prefix>_listing_data.tsv``   — per-coin price/market-cap/supply snapshot
@@ -19,10 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
-import duckdb
-
 from market_data.db.connection import get_connection
-from market_data.db.migrate import migrate
 
 logger = logging.getLogger(__name__)
 
@@ -154,16 +151,16 @@ def discover_snapshots(directory: Path) -> list[SnapshotSet]:
 # ---------------------------------------------------------------------------
 
 
-def is_imported(conn: duckdb.DuckDBPyConnection, snapshot_ts: datetime) -> bool:
+def is_imported(conn, snapshot_ts: datetime) -> bool:
     row = conn.execute(
-        "SELECT 1 FROM cmc_import_log WHERE snapshot_ts = ?", [snapshot_ts]
+        "SELECT 1 FROM cmc_import_log WHERE snapshot_ts = %s", [snapshot_ts]
     ).fetchone()
     return row is not None
 
 
-def mark_imported(conn: duckdb.DuckDBPyConnection, snapshot_ts: datetime) -> None:
+def mark_imported(conn, snapshot_ts: datetime) -> None:
     conn.execute(
-        "INSERT OR IGNORE INTO cmc_import_log (snapshot_ts) VALUES (?)", [snapshot_ts]
+        "INSERT INTO cmc_import_log (snapshot_ts) VALUES (%s) ON CONFLICT DO NOTHING", [snapshot_ts]
     )
 
 
@@ -173,7 +170,7 @@ def mark_imported(conn: duckdb.DuckDBPyConnection, snapshot_ts: datetime) -> Non
 
 
 def import_listing_data(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     path: Path,
     snapshot_ts: datetime,
     dry_run: bool = False,
@@ -237,14 +234,14 @@ def import_listing_data(
         conn.executemany(
             """
             INSERT INTO cmc_listing_snapshots VALUES (
-                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
             ) ON CONFLICT (snapshot_ts, cmc_id) DO NOTHING
             """,
             rows_listing,
         )
     if rows_tags:
         conn.executemany(
-            "INSERT INTO cmc_coin_tags (cmc_id, tag) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            "INSERT INTO cmc_coin_tags (cmc_id, tag) VALUES (%s, %s) ON CONFLICT DO NOTHING",
             rows_tags,
         )
 
@@ -252,7 +249,7 @@ def import_listing_data(
 
 
 def import_map_data(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     path: Path,
     dry_run: bool = False,
 ) -> int:
@@ -288,7 +285,7 @@ def import_map_data(
     if rows:
         conn.executemany(
             """
-            INSERT INTO cmc_map VALUES (?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO cmc_map VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (cmc_id) DO UPDATE SET
                 rank                  = excluded.rank,
                 name                  = excluded.name,
@@ -306,7 +303,7 @@ def import_map_data(
 
 
 def import_categories_data(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     path: Path,
     dry_run: bool = False,
 ) -> int:
@@ -343,7 +340,7 @@ def import_categories_data(
     if rows:
         conn.executemany(
             """
-            INSERT INTO cmc_categories VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO cmc_categories VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (cmc_id) DO UPDATE SET
                 name             = excluded.name,
                 title            = excluded.title,
@@ -362,7 +359,7 @@ def import_categories_data(
 
 
 def import_category_data(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     path: Path,
     dry_run: bool = False,
 ) -> int:
@@ -398,7 +395,7 @@ def import_category_data(
 
     if rows:
         conn.executemany(
-            "INSERT INTO cmc_category_coins (category_id, cmc_coin_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            "INSERT INTO cmc_category_coins (category_id, cmc_coin_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
             rows,
         )
     return len(rows)
@@ -410,7 +407,7 @@ def import_category_data(
 
 
 def enrich_instrument_crypto(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     dry_run: bool = False,
 ) -> int:
     if dry_run:
@@ -452,6 +449,7 @@ def run_import(
 
     Returns a summary dict with counts for each table.
     """
+    from market_data.db.migrate import migrate
     migrate()
     conn = get_connection()
 

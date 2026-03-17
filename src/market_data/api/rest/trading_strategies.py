@@ -30,10 +30,10 @@ async def get_trading_strategies(
     instrument_id = resolve_symbol(symbol)
 
     conn = get_connection()
-    conditions = ["instrument_id = ?"]
+    conditions = ["instrument_id = %s"]
     params: list = [instrument_id]
     if strategy_name:
-        conditions.append("strategy_name = ?")
+        conditions.append("strategy_name = %s")
         params.append(strategy_name)
 
     where = " AND ".join(conditions)
@@ -104,7 +104,7 @@ async def compute_trading_strategies(symbol: str, body: ComputeRequest) -> JSONR
             """
             INSERT INTO trading_strategies
                 (instrument_id, strategy_name, indicator_name, indicator_value, parameters, computed_at)
-            VALUES (?, ?, ?, ?, ?, now())
+            VALUES (%s, %s, %s, %s, %s, now())
             ON CONFLICT (instrument_id, strategy_name, indicator_name)
             DO UPDATE SET
                 indicator_value = excluded.indicator_value,

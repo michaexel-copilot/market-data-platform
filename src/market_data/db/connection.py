@@ -1,33 +1,35 @@
-"""DuckDB connection manager — single shared connection, WAL mode enabled."""
+"""PostgreSQL connection manager — single shared connection via psycopg3."""
 from __future__ import annotations
 
 import os
 import threading
-from pathlib import Path
 
-import duckdb
+import psycopg
 from dotenv import load_dotenv
 
 load_dotenv()
 
 _lock = threading.Lock()
-_conn: duckdb.DuckDBPyConnection | None = None
+_conn: psycopg.Connection | None = None
 
 
-def get_db_path() -> str:
-    return os.getenv("DUCKDB_PATH", "/appdata/market-data-platform/db/market_data.duckdb")
+def get_database_url() -> str:
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError(
+            "DATABASE_URL environment variable is not set. "
+            "Example: postgresql://market_data:<pw>@localhost/market_data_platform"
+        )
+    return url
 
 
-def get_connection() -> duckdb.DuckDBPyConnection:
-    """Return the shared DuckDB connection, creating it on first call."""
+def get_connection() -> psycopg.Connection:
+    """Return the shared PostgreSQL connection, creating it on first call."""
     global _conn
     if _conn is None:
         with _lock:
             if _conn is None:
-                db_path = get_db_path()
-                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-                _conn = duckdb.connect(db_path)
-                # DuckDB uses WAL internally by default; no extra configuration needed
+                _conn = psycopg.connect(get_database_url(), autocommit=True)
     return _conn
 
 

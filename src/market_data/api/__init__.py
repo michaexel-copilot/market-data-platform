@@ -69,7 +69,7 @@ async def _graceful_shutdown(http_server: uvicorn.Server, grpc_server) -> None: 
     # Stop uvicorn
     http_server.should_exit = True
 
-    # Close DuckDB
+    # Close PostgreSQL connection
     try:
         from market_data.db.connection import close_connection
         close_connection()

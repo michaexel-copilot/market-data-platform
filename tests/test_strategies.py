@@ -1,13 +1,9 @@
 """Unit and integration tests for the strategy engine."""
 from __future__ import annotations
 
-import duckdb
 import pytest
-from pathlib import Path
 
 from market_data.strategies.backtest import sma, backtest_short_strategy, backtest_long_strategy
-
-MIGRATIONS_DIR = Path(__file__).parent.parent / "src" / "market_data" / "db" / "migrations"
 
 
 # ---------------------------------------------------------------------------
@@ -116,42 +112,30 @@ def test_long_stop_loss_triggers():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def db_with_ohlcv():
-    """In-memory DB with migrations + BTC instrument + 200 days of hourly candles (2 rows per day)."""
+def db_with_ohlcv(db_conn):
+    """Migrate + seed BTC instrument + 200 days of hourly candles (2 rows per day)."""
     import random
     import datetime
-    import market_data.db.connection as cm
 
-    conn = duckdb.connect(":memory:")
-    for f in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        conn.execute(f.read_text())
-    conn.execute(
-        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active) "
-        "VALUES ('uuid-btc-001', 'BTC', 'BINANCE', 'crypto', TRUE)"
+    db_conn.execute(
+        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)"
+        " VALUES ('uuid-btc-001', 'BTC', 'BINANCE', 'crypto', TRUE)"
     )
     rng = random.Random(42)
     price = 40000.0
+    insert_sql = (
+        "INSERT INTO ohlcv (instrument_id, interval, ts, open, high, low, close, volume, source)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    )
     for i in range(200):
         day = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
         price *= 1 + rng.uniform(-0.03, 0.03)
         h, l = price * 1.01, price * 0.99
         ts_open  = datetime.datetime.combine(day, datetime.time(0, 0, 0))
         ts_close = datetime.datetime.combine(day, datetime.time(23, 0, 0))
-        conn.execute(
-            "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            ["uuid-btc-001", "1h", str(ts_open), price * 0.995, h, l, price, 500, "test"],
-        )
-        conn.execute(
-            "INSERT INTO ohlcv (instrument_id,interval,ts,open,high,low,close,volume,source) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            ["uuid-btc-001", "1h", str(ts_close), price * 0.995, h, l, price * 1.005, 500, "test"],
-        )
-    original = cm._conn
-    cm._conn = conn
-    yield conn
-    conn.close()
-    cm._conn = original
+        db_conn.execute(insert_sql, ["uuid-btc-001", "1h", str(ts_open), price * 0.995, h, l, price, 500, "test"])
+        db_conn.execute(insert_sql, ["uuid-btc-001", "1h", str(ts_close), price * 0.995, h, l, price * 1.005, 500, "test"])
+    yield db_conn
 
 
 def test_compute_best_sma_returns_valid_pair(db_with_ohlcv):

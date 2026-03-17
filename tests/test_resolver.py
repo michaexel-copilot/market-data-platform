@@ -1,26 +1,15 @@
 """Tests for symbol resolver."""
 from __future__ import annotations
 
-import duckdb
 import pytest
-from pathlib import Path
 
 from market_data.models.api import AmbiguousSymbolError, SymbolNotFoundError
 
 
-MIGRATIONS_DIR = Path(__file__).parent.parent / "src" / "market_data" / "db" / "migrations"
-
-
 @pytest.fixture(autouse=True)
-def patched_db(tmp_path):
-    """Patch get_connection to return an isolated in-memory DuckDB with test instruments."""
-    import market_data.db.connection as _mod
-    original = _mod._conn
-    conn = duckdb.connect(":memory:")
-    for f in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        conn.execute(f.read_text())
-    # Insert test instruments
-    conn.execute(
+def patched_db(db_conn):
+    """Seed test instruments for every resolver test."""
+    db_conn.execute(
         """
         INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)
         VALUES
@@ -30,10 +19,7 @@ def patched_db(tmp_path):
             ('uuid-aapl-002', 'AAPL', 'XNYS',    'equity', TRUE)
         """
     )
-    _mod._conn = conn
-    yield conn
-    conn.close()
-    _mod._conn = original
+    yield db_conn
 
 
 def test_exact_uuid_match():
@@ -66,14 +52,15 @@ def test_unknown_symbol_raises():
         resolve_symbol("UNKNOWN_TICKER_XYZ")
 
 
-def test_ticker_same_ticker_different_exchanges_raises():
+def test_ticker_same_ticker_different_exchanges_raises(patched_db):
     """Bare ticker present on multiple exchanges raises AmbiguousSymbolError."""
-    import market_data.db.connection as _mod
-    _mod._conn.execute(
-        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active) VALUES ('dup-001', 'DUP', 'XNAS', 'equity', TRUE)"
+    patched_db.execute(
+        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)"
+        " VALUES ('dup-001', 'DUP', 'XNAS', 'equity', TRUE)"
     )
-    _mod._conn.execute(
-        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active) VALUES ('dup-002', 'DUP', 'XNYS', 'equity', TRUE)"
+    patched_db.execute(
+        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)"
+        " VALUES ('dup-002', 'DUP', 'XNYS', 'equity', TRUE)"
     )
     from market_data.db.resolver import resolve_symbol
     with pytest.raises(AmbiguousSymbolError):

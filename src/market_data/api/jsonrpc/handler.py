@@ -83,15 +83,15 @@ async def _instruments_list(p: dict) -> dict:
     from market_data.db.connection import get_connection
     from market_data.models.enums import AssetClass
     conn = get_connection()
-    conditions = ["is_active = ?"]
+    conditions = ["is_active = %s"]
     params: list = [p.get("is_active", True)]
     asset_class = p.get("asset_class")
     if asset_class:
-        conditions.append("asset_class = ?")
+        conditions.append("asset_class = %s")
         params.append(asset_class)
     q = p.get("q")
     if q:
-        conditions.append("(upper(ticker) LIKE upper(?) OR upper(full_name) LIKE upper(?))")
+        conditions.append("(upper(ticker) LIKE upper(%s) OR upper(full_name) LIKE upper(%s))")
         pattern = f"%{q}%"
         params.extend([pattern, pattern])
     page = int(p.get("page", 1))
@@ -100,7 +100,7 @@ async def _instruments_list(p: dict) -> dict:
     where = " AND ".join(conditions)
     total = conn.execute(f"SELECT COUNT(*) FROM instruments WHERE {where}", params).fetchone()[0]
     rows = conn.execute(
-        f"SELECT instrument_id, ticker, full_name, asset_class, exchange FROM instruments WHERE {where} ORDER BY ticker LIMIT ? OFFSET ?",
+        f"SELECT instrument_id, ticker, full_name, asset_class, exchange FROM instruments WHERE {where} ORDER BY ticker LIMIT %s OFFSET %s",
         params + [page_size, offset],
     ).fetchall()
     cols = ["instrument_id", "ticker", "full_name", "asset_class", "exchange"]
@@ -113,7 +113,7 @@ async def _instrument_get(symbol: str) -> dict:
     instrument_id = resolve_symbol(symbol)
     conn = get_connection()
     row = conn.execute(
-        "SELECT instrument_id, ticker, full_name, asset_class, exchange, is_active FROM instruments WHERE instrument_id = ?",
+        "SELECT instrument_id, ticker, full_name, asset_class, exchange, is_active FROM instruments WHERE instrument_id = %s",
         [instrument_id],
     ).fetchone()
     if not row:
@@ -126,7 +126,7 @@ async def _instrument_fundamentals(symbol: str) -> dict:
     from market_data.db.connection import get_connection
     instrument_id = resolve_symbol(symbol)
     conn = get_connection()
-    base = conn.execute("SELECT instrument_id, asset_class FROM instruments WHERE instrument_id = ?", [instrument_id]).fetchone()
+    base = conn.execute("SELECT instrument_id, asset_class FROM instruments WHERE instrument_id = %s", [instrument_id]).fetchone()
     if not base:
         raise SymbolNotFoundError(symbol)
     return {"instrument_id": base[0], "asset_class": base[1]}
@@ -147,21 +147,21 @@ async def _ohlcv_get(p: dict) -> dict:
 
     instrument_id = resolve_symbol(symbol, AssetClass(asset_class) if asset_class else None)
     conn = get_connection()
-    conditions = ["instrument_id = ?", "interval = ?"]
+    conditions = ["instrument_id = %s", "interval = %s"]
     params: list = [instrument_id, interval]
     if since:
         from datetime import datetime
-        conditions.append("ts >= ?")
+        conditions.append("ts >= %s")
         params.append(datetime.fromisoformat(since.replace("Z", "+00:00")))
     if until:
         from datetime import datetime
-        conditions.append("ts <= ?")
+        conditions.append("ts <= %s")
         params.append(datetime.fromisoformat(until.replace("Z", "+00:00")))
     where = " AND ".join(conditions)
     offset = (page - 1) * page_size
     total = conn.execute(f"SELECT COUNT(*) FROM ohlcv WHERE {where}", params).fetchone()[0]
     rows = conn.execute(
-        f"SELECT instrument_id, interval, ts, open, high, low, close, volume FROM ohlcv WHERE {where} ORDER BY ts ASC LIMIT ? OFFSET ?",
+        f"SELECT instrument_id, interval, ts, open, high, low, close, volume FROM ohlcv WHERE {where} ORDER BY ts ASC LIMIT %s OFFSET %s",
         params + [page_size, offset],
     ).fetchall()
     cols = ["instrument_id", "interval", "ts", "open", "high", "low", "close", "volume"]
