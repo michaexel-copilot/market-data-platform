@@ -50,14 +50,14 @@
 - [x] 6.3 Update `tests/test_api_rest.py`: replace `patched_db` fixture (all `duckdb.connect(":memory:")`) with psycopg3 fixture; update all inline `patched_db.execute(...)` calls to use cursor
 - [x] 6.4 Update `tests/test_migrations.py`: update connection fixture to psycopg3; add assertion `SELECT * FROM timescaledb_information.hypertables WHERE hypertable_name = 'ohlcv'` returns one row
 - [x] 6.5 Update `tests/test_resolver.py`: update fixture to psycopg3
-- [ ] 6.6 Run full test suite: `uv run python -m pytest tests/ -v` — all tests pass
+- [x] 6.6 Run full test suite: `uv run python -m pytest tests/ -v` — all tests pass
 
 ## 7. Data Migration (Production)
 
-- [ ] 7.1 Stop service: `sudo systemctl stop market-data-platform` (or kill `uv run serve`)
+- [x] 7.1 Stop service: `sudo systemctl stop market-data-platform` (or kill `uv run serve`)
 - [x] 7.2 Run PostgreSQL migrations: `uv run migrate`
 - [x] 7.3 Run data migration: `uv run migrate-from-duckdb --source /appdata/market-data-platform/db/market_data.duckdb`
 - [x] 7.4 Verify row counts: spot-check `ohlcv`, `instruments`, `cmc_listing_snapshots` in psql vs original DuckDB
 - [x] 7.5 Start service: `uv run serve`
 - [x] 7.6 Run smoke test: `curl http://localhost:8010/v1/instruments` returns data
-- [ ] 7.7 Archive DuckDB file to `/appdata/market-data-platform/db/archive/` (do not delete yet)
+- [x] 7.7 Archive DuckDB file to `/appdata/market-data-platform/db/archive/` (do not delete yet)

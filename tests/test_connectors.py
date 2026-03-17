@@ -105,3 +105,97 @@ class TestKrakenConnector:
         r = records[0]
         assert r.open == 35000.0
         assert r.trade_count == 200
+
+
+class TestHyperliquidConnector:
+    """Unit tests for the Hyperliquid connector."""
+
+    def test_k_prefix_stripped(self):
+        from market_data.connectors.hyperliquid import _strip_k_prefix
+        assert _strip_k_prefix("KPEPE") == "PEPE"
+        assert _strip_k_prefix("KDOGE") == "DOGE"
+
+    def test_k_prefix_not_stripped_for_short_symbol(self):
+        from market_data.connectors.hyperliquid import _strip_k_prefix
+        # "K" alone should not be stripped
+        assert _strip_k_prefix("K") == "K"
+
+    def test_no_k_prefix_unchanged(self):
+        from market_data.connectors.hyperliquid import _strip_k_prefix
+        assert _strip_k_prefix("BTC") == "BTC"
+        assert _strip_k_prefix("ETH") == "ETH"
+
+    def test_fetch_hl_pairs_parses_response(self):
+        from market_data.connectors.hyperliquid import HyperliquidConnector
+        connector = HyperliquidConnector()
+        fake_response = {
+            "universe": [
+                {"name": "BTC", "szDecimals": 5, "maxLeverage": 50},
+                {"name": "KPEPE", "szDecimals": 0, "maxLeverage": 3},
+            ]
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = fake_response
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            mock_client_cls.return_value = mock_client
+
+            pairs = asyncio.run(connector.fetch_hl_pairs("mainnet"))
+
+        assert len(pairs) == 2
+        btc = next(p for p in pairs if p.base_ticker == "BTC")
+        assert btc.hl_symbol == "BTC/USDC:USDC"
+        assert btc.max_leverage == 50
+
+        kpepe = next(p for p in pairs if p.base_ticker == "PEPE")
+        assert kpepe.hl_symbol == "KPEPE/USDC:USDC"
+        assert kpepe.base_ticker == "PEPE"
+
+    def test_fetch_ohlcv_raises_not_implemented(self):
+        from market_data.connectors.hyperliquid import HyperliquidConnector
+        from market_data.models.enums import Interval
+        from datetime import datetime, timezone
+        connector = HyperliquidConnector()
+        with pytest.raises(NotImplementedError):
+            asyncio.run(connector.fetch_ohlcv(
+                "btc", Interval.ONE_DAY,
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+                datetime(2026, 1, 2, tzinfo=timezone.utc),
+            ))
+
+    def test_reconcile_matched_and_unmatched(self):
+        from market_data.connectors.hyperliquid import reconcile_hl_pairs
+        from market_data.models.instrument import HLPairRecord
+
+        pairs = [
+            HLPairRecord(hl_symbol="BTC/USDC:USDC", base_ticker="BTC", lot_size=1e-5, tick_size=0.0, max_leverage=50),
+            HLPairRecord(hl_symbol="UNKNOWN/USDC:USDC", base_ticker="UNKNOWN", lot_size=1.0, tick_size=0.0, max_leverage=3),
+        ]
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [("uuid-btc-001", "BTC")]
+
+        result = reconcile_hl_pairs(pairs, mock_conn)
+        assert len(result) == 1
+        assert result[0][0] == "uuid-btc-001"
+        assert result[0][1].base_ticker == "BTC"
+
+    def test_reconcile_case_insensitive(self):
+        from market_data.connectors.hyperliquid import reconcile_hl_pairs
+        from market_data.models.instrument import HLPairRecord
+
+        pairs = [
+            HLPairRecord(hl_symbol="ADA/USDC:USDC", base_ticker="ada", lot_size=1.0, tick_size=0.0, max_leverage=10),
+        ]
+        mock_conn = MagicMock()
+        # DB returns upper-cased ticker
+        mock_conn.execute.return_value.fetchall.return_value = [("uuid-ada-001", "ADA")]
+
+        result = reconcile_hl_pairs(pairs, mock_conn)
+        assert len(result) == 1
+        assert result[0][0] == "uuid-ada-001"

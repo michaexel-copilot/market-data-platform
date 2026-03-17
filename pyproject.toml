@@ -26,6 +26,7 @@ migrate             = "market_data.db:migrate"
 market-data         = "market_data.cli:main"
 compute-indicators  = "market_data.cli.compute_indicators:main"
 import-ohlcv        = "market_data.cli.import_ohlcv:main"
+import-hl-pairs     = "market_data.cli.import_hl_pairs:main"
 migrate-from-duckdb = "market_data.cli.migrate_from_duckdb:main"
 
 [build-system]

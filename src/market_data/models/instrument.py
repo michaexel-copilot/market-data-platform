@@ -1,6 +1,7 @@
 """Instrument data models."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -33,6 +34,16 @@ class InstrumentRecord(BaseModel):
     data_sources: list[str] | None = None
     first_seen_at: datetime | None = None
     last_updated_at: datetime | None = None
+
+
+@dataclass
+class HLPairRecord:
+    """Raw Hyperliquid perpetual pair metadata."""
+    hl_symbol: str      # e.g. "BTC/USDC:USDC"
+    base_ticker: str    # canonical ticker after K-prefix stripping
+    lot_size: float
+    tick_size: float
+    max_leverage: float
 
 
 class InstrumentCryptoRecord(BaseModel):

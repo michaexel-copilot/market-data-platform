@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import psycopg
@@ -24,7 +25,8 @@ TIMESCALE_MIGRATIONS = frozenset(
 
 
 def _exec_script(conn: psycopg.Connection, sql: str) -> None:
-    for stmt in sql.split(";"):
+    sql_stripped = re.sub(r"--[^\n]*", "", sql)
+    for stmt in sql_stripped.split(";"):
         stmt = stmt.strip()
         if stmt:
             conn.execute(stmt)

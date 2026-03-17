@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from market_data.db.connection import get_connection
 from market_data.db.migrate import migrate
+from market_data.ingestion.hyperliquid import upsert_hl_pairs
 from market_data.ingestion.import_ohlcv_cache import import_from_cache
 from market_data.ingestion.migrate_fundamentals import migrate_fundamentals
 
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
 # Intervals that have a corresponding has_<interval> column in ohlcv_data_available
 _NATIVE_INTERVALS = {"1m", "5m", "1h", "1d"}
+_VALID_HL_NETWORKS = {"mainnet", "testnet"}
 
 
 class ImportOhlcvCacheRequest(BaseModel):
@@ -39,6 +41,10 @@ class ImportOhlcvRequest(BaseModel):
 
 class ImportCmcStaticRequest(BaseModel):
     dir: str | None = None
+
+
+class ImportHLPairsRequest(BaseModel):
+    network: str = "mainnet"
 
 
 @router.post("/import-ohlcv")
@@ -294,3 +300,26 @@ def run_import_cmc_static(req: ImportCmcStaticRequest) -> dict:
 
     counts = run_import(directory)
     return counts if counts else {}
+
+
+@router.post("/import-hl-pairs")
+async def run_import_hl_pairs(req: ImportHLPairsRequest) -> dict:
+    """Fetch Hyperliquid perpetual pairs and upsert into instrument_hyperliquid.
+
+    Returns ``{upserted, unmatched, deactivated}``.
+    """
+    if req.network not in _VALID_HL_NETWORKS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid network {req.network!r}. Valid values: {sorted(_VALID_HL_NETWORKS)}",
+        )
+
+    from market_data.connectors.hyperliquid import HyperliquidConnector, reconcile_hl_pairs
+
+    connector = HyperliquidConnector()
+    pairs = await connector.fetch_hl_pairs(req.network)
+    conn = get_connection()
+    reconciled = reconcile_hl_pairs(pairs, conn)
+    unmatched = len(pairs) - len(reconciled)
+    upserted, deactivated = upsert_hl_pairs(conn, req.network, reconciled)
+    return {"upserted": upserted, "unmatched": unmatched, "deactivated": deactivated}

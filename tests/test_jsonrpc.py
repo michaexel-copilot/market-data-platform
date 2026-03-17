@@ -1,32 +1,20 @@
 """Tests for JSON-RPC 2.0 handler."""
 from __future__ import annotations
 
-import duckdb
 import json
 import pytest
 from httpx import AsyncClient, ASGITransport
-from pathlib import Path
-
-MIGRATIONS_DIR = Path(__file__).parent.parent / "src" / "market_data" / "db" / "migrations"
 
 
 @pytest.fixture(autouse=True)
-def patched_db():
-    import market_data.db.connection as _mod
-    original = _mod._conn
-    conn = duckdb.connect(":memory:")
-    for f in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        conn.execute(f.read_text())
-    conn.execute(
-        """
-        INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)
-        VALUES ('uuid-btc-001', 'BTC', 'BINANCE', 'crypto', TRUE)
-        """
+def patched_db(db_conn):
+    """Seed base test data for every JSON-RPC test; auto-rollback via db_conn."""
+    db_conn.execute(
+        "INSERT INTO instruments (instrument_id, ticker, exchange, asset_class, is_active)"
+        " VALUES (%s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "BTC", "BINANCE", "crypto", True),
     )
-    _mod._conn = conn
-    yield conn
-    conn.close()
-    _mod._conn = original
+    yield db_conn
 
 
 @pytest.fixture

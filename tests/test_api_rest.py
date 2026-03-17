@@ -138,3 +138,89 @@ async def test_post_compute_then_get(patched_db, app):
         # GET should now return 200
         resp = await client.get("/v1/trading-strategies/btc?strategy_name=best_sma")
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Hyperliquid filter-assets tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_import_hl_pairs_endpoint(app, patched_db):
+    """POST /v1/admin/import-hl-pairs should upsert HL pairs via the connector."""
+    from unittest.mock import AsyncMock, patch
+    from market_data.models.instrument import HLPairRecord
+
+    fake_pairs = [
+        HLPairRecord(hl_symbol="BTC/USDC:USDC", base_ticker="BTC", lot_size=1e-5, tick_size=0.0, max_leverage=50),
+    ]
+
+    with patch("market_data.connectors.hyperliquid.HyperliquidConnector.fetch_hl_pairs",
+               new=AsyncMock(return_value=fake_pairs)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/v1/admin/import-hl-pairs", json={"network": "mainnet"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "upserted" in data
+    assert "unmatched" in data
+    assert "deactivated" in data
+    assert data["upserted"] == 1
+    assert data["unmatched"] == 0
+
+
+@pytest.mark.asyncio
+async def test_import_hl_pairs_invalid_network(app, patched_db):
+    """POST /v1/admin/import-hl-pairs with invalid network should return 422."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/admin/import-hl-pairs", json={"network": "invalid"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_instruments_tradeable_on_hyperliquid_empty(app, patched_db):
+    """GET /v1/instruments?tradeable_on=hyperliquid with no HL data returns empty."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/instruments?tradeable_on=hyperliquid")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 0
+    assert data["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_instruments_tradeable_on_hyperliquid_with_data(app, patched_db):
+    """GET /v1/instruments?tradeable_on=hyperliquid returns instruments with HL metadata."""
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+    from market_data.models.instrument import HLPairRecord
+
+    fake_pairs = [
+        HLPairRecord(hl_symbol="BTC/USDC:USDC", base_ticker="BTC", lot_size=1e-5, tick_size=0.0, max_leverage=50),
+    ]
+
+    # Seed HL data via the import endpoint
+    with patch("market_data.connectors.hyperliquid.HyperliquidConnector.fetch_hl_pairs",
+               new=AsyncMock(return_value=fake_pairs)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            import_resp = await client.post("/v1/admin/import-hl-pairs", json={"network": "mainnet"})
+    assert import_resp.status_code == 200
+
+    # Now filter by tradeable_on=hyperliquid
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/instruments?tradeable_on=hyperliquid&network=mainnet")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    item = data["items"][0]
+    assert item["ticker"] == "BTC"
+    assert item.get("hyperliquid") is not None
+    assert item["hyperliquid"]["hl_symbol"] == "BTC/USDC:USDC"
+    assert item["hyperliquid"]["max_leverage"] == 50
+
+
+@pytest.mark.asyncio
+async def test_list_instruments_tradeable_on_invalid(app, patched_db):
+    """GET /v1/instruments?tradeable_on=unknown should return 400."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/instruments?tradeable_on=unknown_exchange")
+    assert resp.status_code == 400

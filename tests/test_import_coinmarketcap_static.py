@@ -6,7 +6,6 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-import duckdb
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -149,17 +148,10 @@ def _write_category(directory: Path) -> Path:
 # Fixtures
 # ---------------------------------------------------------------------------
 
-MIGRATIONS_DIR = Path(__file__).parent.parent / "src" / "market_data" / "db" / "migrations"
-
-
 @pytest.fixture()
-def mem_conn():
-    """Fresh in-memory DuckDB connection with all migrations applied."""
-    conn = duckdb.connect(":memory:")
-    for sql_file in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        conn.execute(sql_file.read_text())
-    yield conn
-    conn.close()
+def mem_conn(db_conn):
+    """psycopg3 connection with all migrations applied; auto-rollback after each test."""
+    yield db_conn
 
 
 @pytest.fixture()

@@ -18,6 +18,14 @@ class PaginatedResponse(BaseModel, Generic[T]):
     next_page: int | None = None
 
 
+class HLMetadata(BaseModel):
+    """Hyperliquid-specific trading metadata embedded in instrument list responses."""
+    hl_symbol: str
+    lot_size: float
+    tick_size: float
+    max_leverage: float
+
+
 class InstrumentListRequest(BaseModel):
     asset_class: AssetClass | None = None
     is_active: bool = True

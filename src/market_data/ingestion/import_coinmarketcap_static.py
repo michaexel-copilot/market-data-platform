@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from market_data.db.connection import get_connection
+from market_data.db.migrate import migrate
 
 logger = logging.getLogger(__name__)
 
@@ -231,19 +232,21 @@ def import_listing_data(
         return len(rows_listing)
 
     if rows_listing:
-        conn.executemany(
-            """
-            INSERT INTO cmc_listing_snapshots VALUES (
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
-            ) ON CONFLICT (snapshot_ts, cmc_id) DO NOTHING
-            """,
-            rows_listing,
-        )
+        with conn.cursor() as _cur:
+            _cur.executemany(
+                """
+                INSERT INTO cmc_listing_snapshots VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                ) ON CONFLICT (snapshot_ts, cmc_id) DO NOTHING
+                """,
+                rows_listing,
+            )
     if rows_tags:
-        conn.executemany(
-            "INSERT INTO cmc_coin_tags (cmc_id, tag) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-            rows_tags,
-        )
+        with conn.cursor() as _cur:
+            _cur.executemany(
+                "INSERT INTO cmc_coin_tags (cmc_id, tag) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                rows_tags,
+            )
 
     return len(rows_listing)
 
@@ -283,10 +286,11 @@ def import_map_data(
         return len(rows)
 
     if rows:
-        conn.executemany(
-            """
-            INSERT INTO cmc_map VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (cmc_id) DO UPDATE SET
+        with conn.cursor() as _cur:
+            _cur.executemany(
+                """
+                INSERT INTO cmc_map VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (cmc_id) DO UPDATE SET
                 rank                  = excluded.rank,
                 name                  = excluded.name,
                 symbol                = excluded.symbol,
@@ -296,9 +300,9 @@ def import_map_data(
                 first_historical_data = excluded.first_historical_data,
                 last_historical_data  = excluded.last_historical_data,
                 platform              = excluded.platform
-            """,
-            rows,
-        )
+                """,
+                rows,
+            )
     return len(rows)
 
 
@@ -338,10 +342,11 @@ def import_categories_data(
         return len(rows)
 
     if rows:
-        conn.executemany(
-            """
-            INSERT INTO cmc_categories VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (cmc_id) DO UPDATE SET
+        with conn.cursor() as _cur:
+            _cur.executemany(
+                """
+                INSERT INTO cmc_categories VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (cmc_id) DO UPDATE SET
                 name             = excluded.name,
                 title            = excluded.title,
                 description      = excluded.description,
@@ -352,9 +357,9 @@ def import_categories_data(
                 volume           = excluded.volume,
                 volume_change    = excluded.volume_change,
                 last_updated     = excluded.last_updated
-            """,
-            rows,
-        )
+                """,
+                rows,
+            )
     return len(rows)
 
 
@@ -394,10 +399,11 @@ def import_category_data(
         return len(rows)
 
     if rows:
-        conn.executemany(
-            "INSERT INTO cmc_category_coins (category_id, cmc_coin_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-            rows,
-        )
+        with conn.cursor() as _cur:
+            _cur.executemany(
+                "INSERT INTO cmc_category_coins (category_id, cmc_coin_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                rows,
+            )
     return len(rows)
 
 
@@ -449,7 +455,6 @@ def run_import(
 
     Returns a summary dict with counts for each table.
     """
-    from market_data.db.migrate import migrate
     migrate()
     conn = get_connection()
 
