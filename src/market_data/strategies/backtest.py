@@ -1,4 +1,4 @@
-"""Pure backtest primitives — ported from FindShortOpportunites/draw_chart.py."""
+"""Pure backtest primitives — ported from ShortDesk/draw_chart.py."""
 from __future__ import annotations
 
 

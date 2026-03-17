@@ -6,7 +6,7 @@
 ## 2. Strategy Engine
 
 - [x] 2.1 Create `src/market_data/strategies/__init__.py`
-- [x] 2.2 Create `src/market_data/strategies/backtest.py` — port `sma`, `backtest_short_strategy`, `backtest_long_strategy` verbatim from `FindShortOpportunites/draw_chart.py`
+- [x] 2.2 Create `src/market_data/strategies/backtest.py` — port `sma`, `backtest_short_strategy`, `backtest_long_strategy` verbatim from `ShortDesk/draw_chart.py`
 - [x] 2.3 Create `src/market_data/strategies/best_sma.py` — implement `compute_best_sma(instrument_id, parameters)` reading OHLCV from DuckDB, raising `ValueError` if no `1d` rows found, running the grid search over [3, 50] × [3, 50] on the training slice (first 80 %), returning `{"sma_low": int, "sma_high": int}`
 - [x] 2.4 Create `src/market_data/strategies/registry.py` — define `STRATEGY_REGISTRY = {"best_sma": compute_best_sma}`
 
@@ -22,9 +22,9 @@
 - [x] 4.2 Register the new router in `src/market_data/api/rest/app.py`
 - [x] 4.3 Verify `GET /v1/trading-strategies/BTC` returns 404 before compute and 200 after
 
-## 5. FindShortOpportunites Integration
+## 5. ShortDesk Integration
 
-- [x] 5.1 Add `MARKET_DATA_PLATFORM_URL` config (env var with default `http://localhost:8010`) to `FindShortOpportunites/web.py`
+- [x] 5.1 Add `MARKET_DATA_PLATFORM_URL` config (env var with default `http://localhost:8010`) to `ShortDesk/web.py`
 - [x] 5.2 Replace the inline `_find_best_sma` call in `best_sma_endpoint` with an `httpx.get` to `GET /v1/trading-strategies/{symbol}?strategy_name=best_sma`; extract `sma_low` and `sma_high` from the response
 - [x] 5.3 Return HTTP 422 with error when the platform returns 404
 - [x] 5.4 Keep the existing OOS validation logic (runs locally using the returned sma_low / sma_high values)

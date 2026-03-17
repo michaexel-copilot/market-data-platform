@@ -1,6 +1,6 @@
 ## Context
 
-`ohlcv` is empty because `import-ohlcv-cache` has never been called as a bulk operation. 144 hourly JSON files exist at `/appdata/eodhd/intraday_historical_data/1-hour/<TICKER>.json` (each named by ticker), covering ~5.5 years of data. The `compute_best_sma` strategy queries `interval='1d'` which doesn't exist — only `1h` rows will be present after import. `FindShortOpportunites/web.py` has a two-level local cache (in-memory + per-day JSON files) for best_sma results that bypasses the database entirely.
+`ohlcv` is empty because `import-ohlcv-cache` has never been called as a bulk operation. 144 hourly JSON files exist at `/appdata/eodhd/intraday_historical_data/1-hour/<TICKER>.json` (each named by ticker), covering ~5.5 years of data. The `compute_best_sma` strategy queries `interval='1d'` which doesn't exist — only `1h` rows will be present after import. `ShortDesk/web.py` has a two-level local cache (in-memory + per-day JSON files) for best_sma results that bypasses the database entirely.
 
 ## Goals / Non-Goals
 
@@ -12,7 +12,7 @@
 **Non-Goals:**
 - Fetching OHLCV from the network/API during this change.
 - Changing the backtest logic or SMA grid parameters.
-- Modifying how `FindShortOpportunites/web.py` calls the REST API for anything other than removing the local cache.
+- Modifying how `ShortDesk/web.py` calls the REST API for anything other than removing the local cache.
 
 ## Decisions
 

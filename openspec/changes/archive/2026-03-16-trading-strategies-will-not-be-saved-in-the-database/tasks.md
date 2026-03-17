@@ -14,7 +14,7 @@
 - [x] 3.1 Update `compute_best_sma` in `best_sma.py` — replace `WHERE interval='1d'` query with a CTE that aggregates `1h` rows to daily bars (open=first, high=max, low=min, close=last, volume=sum grouped by `DATE_TRUNC('day', ts)`)
 - [x] 3.2 Update error message to say `interval='1h'` instead of `interval='1d'`
 
-## 4. FindShortOpportunites: remove local cache
+## 4. ShortDesk: remove local cache
 
 - [x] 4.1 Remove `_BEST_SMA_CACHE`, `_BEST_SMA_CACHE_DIR`, `_best_sma_cache_path`, `_load_best_sma_cache`, `_save_best_sma_cache`, `_find_best_sma` from `web.py`
 - [x] 4.2 Simplify `best_sma_endpoint` to call market-data-platform API only; return HTTP 503 if the API returns 404 (no precomputed data)

@@ -1,6 +1,6 @@
 ## Context
 
-The market-data-platform manages a broad canonical instrument registry sourced from CoinMarketCap, EODHD, and others. FindShortOpportunities (the trading UI) targets Hyperliquid perpetual futures exclusively, but currently maintains its own local CSV files (`hl_testnet_pairs.csv`, `hl_mainnet_pairs.csv`) to track which instruments are available on HL and their trading parameters (lot size, tick size, max leverage). These CSV files are maintained manually and go stale.
+The market-data-platform manages a broad canonical instrument registry sourced from CoinMarketCap, EODHD, and others. ShortDesk (the trading UI) targets Hyperliquid perpetual futures exclusively, but currently maintains its own local CSV files (`hl_testnet_pairs.csv`, `hl_mainnet_pairs.csv`) to track which instruments are available on HL and their trading parameters (lot size, tick size, max leverage). These CSV files are maintained manually and go stale.
 
 The platform already has a well-established connector pattern (`market_data/connectors/`), a migration-based DB schema, and a REST API that exposes `GET /v1/instruments`. The goal is to extend all three layers consistently.
 
@@ -16,7 +16,7 @@ The Hyperliquid public REST API (`https://api.hyperliquid.xyz/info`) is key-less
 
 **Non-Goals:**
 - OHLCV data from Hyperliquid (Hyperliquid does not offer open historical OHLCV; this remains out of scope).
-- Account-level or order management (that lives in FindShortOpportunities / hl_client).
+- Account-level or order management (that lives in ShortDesk / hl_client).
 - Auto-scheduling of HL pair refreshes (manual CLI refresh is sufficient for now).
 - Creating new instruments from HL that have no match in the canonical registry.
 
@@ -65,7 +65,7 @@ The filter adds a `JOIN instrument_hyperliquid USING (instrument_id)` when `trad
 2. Deploy API with new `tradeable_on` query parameter (additive, backwards compatible).
 3. Register `import-hl-pairs` CLI entrypoint in `pyproject.toml`.
 4. Run `market-data import-hl-pairs --mainnet` and `--testnet` once to seed data.
-5. FindShortOpportunities can then replace its CSV lookups with `GET /v1/instruments?tradeable_on=hyperliquid&network=mainnet`.
+5. ShortDesk can then replace its CSV lookups with `GET /v1/instruments?tradeable_on=hyperliquid&network=mainnet`.
 
 **Rollback**: drop migration `022_instrument_hyperliquid.sql`; remove the `tradeable_on` filter; remove CLI entrypoint. No existing data is modified.
 

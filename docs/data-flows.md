@@ -38,7 +38,7 @@ flowchart TD
     end
 
     subgraph Clients["Consumers"]
-        WEB[Web UI /\nFindShortOpportunities]
+        WEB[Web UI /\nShortDesk]
         SCRIPTS[Analysis scripts]
         COMPUTE[compute-indicators\nCLI]
     end

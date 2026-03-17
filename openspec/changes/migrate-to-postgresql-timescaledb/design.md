@@ -17,7 +17,7 @@ Schema: 17 migration files, ~20 tables. Time-series data lives in `ohlcv` (~50M 
 - Setting up PostgreSQL replication (separate future change)
 - Connection pooling via PgBouncer (can be added later; psycopg-pool is sufficient for now)
 - Changing the REST API schema or any business logic
-- Migrating `FindShortOpportunites/web.py` (it reads from market-data-platform via HTTP only)
+- Migrating `ShortDesk/web.py` (it reads from market-data-platform via HTTP only)
 
 ## Decisions
 

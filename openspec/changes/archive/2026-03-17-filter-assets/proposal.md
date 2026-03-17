@@ -1,6 +1,6 @@
 ## Why
 
-The market-data-platform holds a broad instrument registry (sourced from CoinMarketCap, EODHD, etc.) but has no record of which instruments are actually tradeable as perpetual futures on Hyperliquid. Without this intersection, consumers like FindShortOpportunities cannot query the platform for "only the instruments I can trade on HL" — they must maintain a separate CSV file outside the platform.
+The market-data-platform holds a broad instrument registry (sourced from CoinMarketCap, EODHD, etc.) but has no record of which instruments are actually tradeable as perpetual futures on Hyperliquid. Without this intersection, consumers like ShortDesk cannot query the platform for "only the instruments I can trade on HL" — they must maintain a separate CSV file outside the platform.
 
 ## What Changes
 
@@ -26,5 +26,5 @@ The market-data-platform holds a broad instrument registry (sourced from CoinMar
 - **New connector module**: `market_data/connectors/hyperliquid.py` implementing the `Connector` protocol (`fetch_instruments` only; `fetch_ohlcv` raises `NotImplementedError`).
 - **New CLI entrypoint**: `import-hl-pairs` in `market_data/cli/`.
 - **API change (additive)**: new `tradeable_on` query param on `GET /v1/instruments` — backwards compatible.
-- **FindShortOpportunities**: can replace the local `hl_mainnet_pairs.csv` / `hl_testnet_pairs.csv` files with API calls to the market-data-platform.
+- **ShortDesk**: can replace the local `hl_mainnet_pairs.csv` / `hl_testnet_pairs.csv` files with API calls to the market-data-platform.
 - **No breaking changes** to existing endpoints or tables.

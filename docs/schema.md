@@ -284,7 +284,7 @@ A TimescaleDB **continuous aggregate** (materialised, auto-refreshed) derived fr
 
 ### trading_strategies
 
-Pre-computed indicator values produced by trading strategy algorithms. Used as a look-up cache: the REST API and `FindShortOpportunites` read from this table rather than running live grid-search computations. Values are written by the `compute-indicators` CLI or the `POST /v1/trading-strategies/{symbol}/compute` endpoint.
+Pre-computed indicator values produced by trading strategy algorithms. Used as a look-up cache: the REST API and `ShortDesk` read from this table rather than running live grid-search computations. Values are written by the `compute-indicators` CLI or the `POST /v1/trading-strategies/{symbol}/compute` endpoint.
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
