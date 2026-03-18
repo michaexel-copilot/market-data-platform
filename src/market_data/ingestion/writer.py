@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def write_ohlcv(records: list[OHLCVRecord]) -> int:
     """Upsert OHLCV records into the ``ohlcv`` table.
 
-    Uses INSERT OR REPLACE semantics (DuckDB ``INSERT … ON CONFLICT DO UPDATE``).
+    Uses ``INSERT … ON CONFLICT DO UPDATE`` upsert semantics.
 
     Returns:
         Number of rows written.

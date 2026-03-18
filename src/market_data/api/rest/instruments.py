@@ -39,6 +39,7 @@ async def list_instruments(
     page_size: int = Query(default=50, ge=1, le=5000),
     tradeable_on: str | None = Query(default=None),
     network: str = Query(default="mainnet"),
+    sources: str | None = Query(default=None),
 ) -> PaginatedResponse:
     if tradeable_on is not None and tradeable_on not in _VALID_TRADEABLE_ON:
         raise HTTPException(
@@ -50,6 +51,8 @@ async def list_instruments(
             status_code=400,
             detail=f"Invalid network value {network!r}. Valid values: {sorted(_VALID_NETWORKS)}",
         )
+
+    source_list = [s.strip() for s in sources.split(",") if s.strip()] if sources else []
 
     conn = get_connection()
 
@@ -69,6 +72,15 @@ async def list_instruments(
             conditions.append("(upper(i.ticker) LIKE upper(%s) OR upper(i.full_name) LIKE upper(%s))")
             pattern = f"%{q}%"
             params.extend([pattern, pattern])
+        if source_list:
+            conditions.append(
+                "i.instrument_id IN ("
+                "  SELECT instrument_id FROM instrument_source_intersection"
+                "  WHERE source_short_name = ANY(%s)"
+                "  GROUP BY instrument_id HAVING COUNT(DISTINCT source_short_name) = %s"
+                ")"
+            )
+            params.extend([source_list, len(source_list)])
 
         where = " AND ".join(conditions)
         total_row = conn.execute(f"SELECT COUNT(*) FROM {base_table} WHERE {where}", params).fetchone()
@@ -106,6 +118,15 @@ async def list_instruments(
             conditions.append("(upper(ticker) LIKE upper(%s) OR upper(full_name) LIKE upper(%s))")
             pattern = f"%{q}%"
             params.extend([pattern, pattern])
+        if source_list:
+            conditions.append(
+                "instrument_id IN ("
+                "  SELECT instrument_id FROM instrument_source_intersection"
+                "  WHERE source_short_name = ANY(%s)"
+                "  GROUP BY instrument_id HAVING COUNT(DISTINCT source_short_name) = %s"
+                ")"
+            )
+            params.extend([source_list, len(source_list)])
 
         where = " AND ".join(conditions)
         total_row = conn.execute(f"SELECT COUNT(*) FROM instruments WHERE {where}", params).fetchone()

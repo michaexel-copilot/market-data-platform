@@ -21,7 +21,7 @@ async def backfill(
     until: datetime | None = None,
     instrument_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Fetch historical OHLCV data from *source* and persist to DuckDB.
+    """Fetch historical OHLCV data from *source* and persist to the database.
 
     Args:
         source: Connector name (e.g. ``"binance"``, ``"eodhd"``).

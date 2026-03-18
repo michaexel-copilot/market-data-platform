@@ -53,7 +53,7 @@ async def _serve_all() -> None:
 
 
 async def _graceful_shutdown(http_server: uvicorn.Server, grpc_server) -> None:  # type: ignore[type-arg]
-    """Stop scheduler, flush writes, close DuckDB, then stop servers."""
+    """Stop scheduler, flush writes, close the database connection, then stop servers."""
     logger.info("Initiating graceful shutdown…")
 
     # Stop APScheduler if running

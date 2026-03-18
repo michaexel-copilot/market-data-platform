@@ -64,12 +64,14 @@ The module SHALL provide `backtest_long_strategy(candles, sma_high, position_siz
 
 ### Requirement: best_sma strategy
 The module SHALL provide `compute_best_sma(instrument_id, parameters)` that:
-1. Aggregates `1h` OHLCV candles for `instrument_id` from DuckDB into daily bars using a SQL CTE grouped by UTC calendar day (`DATE_TRUNC('day', ts)`). Within each day: `open` = value at `MIN(ts)`, `high` = `MAX(high)`, `low` = `MIN(low)`, `close` = value at `MAX(ts)`, `volume` = `SUM(volume)`. Rows are ordered ascending by day.
+1. Aggregates `1h` OHLCV candles for `instrument_id` from PostgreSQL into daily bars using a SQL CTE grouped by UTC calendar day (`DATE_TRUNC('day', ts)`). Within each day: `open` = value at `MIN(ts)`, `high` = `MAX(high)`, `low` = `MIN(low)`, `close` = value at `MAX(ts)`, `volume` = `SUM(volume)`. Rows are ordered ascending by day.
 2. Raises a `ValueError` if no `1h` rows are found for the instrument.
 3. Uses the first 80% of aggregated daily bars as the training slice.
 4. Pre-computes SMA arrays for all periods in [3, 50] on the LOW and HIGH price series of the training slice.
-5. Iterates all (sma_low_period, sma_high_period) combinations in [3, 50] × [3, 50], runs both backtests, scores by combined average P&L per closed trade (total combined P&L / total closed trade count; −∞ if no closed trades).
+5. Iterates all (sma_low_period, sma_high_period) combinations in [3, 50] × [3, 50], runs both backtests, scores by combined average P&L per closed trade.
 6. Returns a dict `{"sma_low": <int>, "sma_high": <int>}`.
+
+All SQL parameters SHALL use `%s` placeholders (psycopg3 / DB-API 2.0 style). The function SHALL obtain a cursor from `get_connection()` and call `cursor.execute()` / `cursor.fetchall()`.
 
 #### Scenario: Normal computation succeeds from 1h data
 - **WHEN** `compute_best_sma` is called for an instrument with sufficient `1h` candles in `ohlcv`

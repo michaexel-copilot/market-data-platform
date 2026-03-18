@@ -31,6 +31,16 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       background: #e94560; border-color: #e94560; color: #fff; font-weight: 600;
     }
 
+    /* ── SEG_SOURCE_FILTER ── */
+    #SEG_SOURCE_FILTER { display: flex; gap: 4px; margin-top: 6px; }
+    #SEG_SOURCE_FILTER button {
+      padding: 4px 12px; border: 1px solid #555; border-radius: 4px;
+      background: transparent; color: #aaa; cursor: pointer; font-size: 0.78rem;
+    }
+    #SEG_SOURCE_FILTER button.active {
+      background: #16213e; border-color: #a0c4ff; color: #a0c4ff; font-weight: 600;
+    }
+
     /* ── ACT_BTN_LIST ── */
     #ACT_BTN_LIST { display: flex; gap: 8px; align-items: center; }
     #BTN_MIGRATE_FUNDAMENTALS {
@@ -126,6 +136,12 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     <button data-class="fx">FX</button>
     <button data-class="commodity">Commodity</button>
   </div>
+  <div id="SEG_SOURCE_FILTER">
+    <button data-source="eodhd" class="active">eodhd</button>
+    <button data-source="hl" class="active">hl</button>
+    <button data-source="yahoo-finance">yahoo-finance</button>
+    <button data-source="cmc">cmc</button>
+  </div>
   <div id="ACT_BTN_LIST">
     <button id="BTN_MIGRATE_FUNDAMENTALS">Migrate Fundamental Data</button>
   </div>
@@ -165,12 +181,14 @@ _CONSOLE_HTML = """<!DOCTYPE html>
 <script>
   // ── State ──
   let selectedInstrumentId = null;
+  let activeSources = new Set(['eodhd', 'hl']);
 
   // ── Element references ──
   let allLoadedInstruments = [];
 
   // ── Element references ──
   const segButtons        = document.querySelectorAll('#SEG_ASSET_CLASS button');
+  const srcButtons        = document.querySelectorAll('#SEG_SOURCE_FILTER button');
   const listUl            = document.getElementById('INSTRUMENT_LIST_UL');
   const inpFilter         = document.getElementById('INP_INSTRUMENT_FILTER');
   const fundamentalsPane  = document.getElementById('PANE_FUNDAMENTALS');
@@ -192,14 +210,32 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     });
   });
 
+  // ── Source-filter selector ──
+  srcButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const src = btn.dataset.source;
+      if (activeSources.has(src) && activeSources.size === 1) return; // keep at least one active
+      if (activeSources.has(src)) {
+        activeSources.delete(src);
+        btn.classList.remove('active');
+      } else {
+        activeSources.add(src);
+        btn.classList.add('active');
+      }
+      const activeClass = document.querySelector('#SEG_ASSET_CLASS button.active')?.dataset.class || 'crypto';
+      loadInstruments(activeClass);
+    });
+  });
+
   // ── Load instrument list ──
   async function loadInstruments(assetClass) {
     listUl.innerHTML = '<li class="list-empty">Loading…</li>';
     try {
       let allItems = [];
       let page = 1;
+      const sourcesParam = activeSources.size > 0 ? `&sources=${[...activeSources].join(',')}` : '';
       while (true) {
-        const res = await fetch(`/v1/instruments?asset_class=${assetClass}&is_active=true&page_size=1000&page=${page}`);
+        const res = await fetch(`/v1/instruments?asset_class=${assetClass}&is_active=true&page_size=1000&page=${page}${sourcesParam}`);
         const data = await res.json();
         const items = data.items || [];
         allItems = allItems.concat(items);
@@ -209,7 +245,9 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       listUl.innerHTML = '';
       if (allItems.length === 0) {
         allLoadedInstruments = [];
-        listUl.innerHTML = '<li class="list-empty">No instruments found</li>';
+        listUl.innerHTML = activeSources.size > 0
+          ? '<li class="list-empty">No instruments found. Run import-source-intersection to populate source data.</li>'
+          : '<li class="list-empty">No instruments found</li>';
         return;
       }
       allLoadedInstruments = allItems;

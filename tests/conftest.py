@@ -89,7 +89,7 @@ def db_conn(_pg_test_url: str, _apply_migrations: None):
 
     Runs in *autocommit=False* mode so every test's DML is automatically
     rolled back when the fixture tears down — giving the same clean-slate
-    semantics that the old ``duckdb.connect(":memory:")`` fixtures provided.
+    semantics that the old in-memory database fixtures provided.
     """
     import market_data.db.connection as _mod
 

@@ -21,7 +21,7 @@ _LOOKBACK: dict[Interval, timedelta] = {
 
 
 def _active_instrument_ids() -> list[str]:
-    """Return instrument_ids for all active instruments tracked in DuckDB."""
+    """Return instrument_ids for all active instruments tracked in the database."""
     conn = get_connection()
     rows = conn.execute("SELECT instrument_id FROM instruments WHERE is_active = TRUE").fetchall()
     return [r[0] for r in rows]

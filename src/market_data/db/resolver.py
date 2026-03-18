@@ -23,7 +23,7 @@ def resolve_symbol(
         asset_class: Optional filter to narrow ambiguous bare-ticker lookups.
 
     Returns:
-        The canonical ``instrument_id`` string stored in DuckDB.
+        The canonical ``instrument_id`` string stored in the database.
 
     Raises:
         SymbolNotFoundError: When no matching instrument is found.

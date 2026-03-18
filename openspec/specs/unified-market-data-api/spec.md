@@ -7,7 +7,7 @@ Defines the REST, JSON-RPC 2.0, and gRPC interfaces for the market data platform
 ## Requirements
 
 ### Requirement: REST API — instruments endpoint
-The system SHALL expose a REST endpoint `GET /v1/instruments` that returns a paginated list of instruments. Query parameters SHALL include: `asset_class` (filter), `is_active` (filter, default `true`), `q` (full-text search on `ticker` and `full_name`), `page` (default 1), `page_size` (default 50, max 200), `tradeable_on` (optional, values: `hyperliquid`), `network` (optional, values: `mainnet` | `testnet`, default `mainnet`, used only when `tradeable_on` is set). The response SHALL include `total`, `page`, `page_size`, and `items` fields. When `tradeable_on=hyperliquid` is set, each item SHALL include an additional `hyperliquid` object with `hl_symbol`, `lot_size`, `tick_size`, `max_leverage`, and `is_active` for the requested network.
+The system SHALL expose a REST endpoint `GET /v1/instruments` that returns a paginated list of instruments. Query parameters SHALL include: `asset_class` (filter), `is_active` (filter, default `true`), `q` (full-text search on `ticker` and `full_name`), `page` (default 1), `page_size` (default 50, max 200), `tradeable_on` (optional, values: `hyperliquid`), `network` (optional, values: `mainnet` | `testnet`, default `mainnet`, used only when `tradeable_on` is set), and `sources` (optional, comma-separated list of data source short-names, e.g. `eodhd,hl`). The response SHALL include `total`, `page`, `page_size`, and `items` fields. When `tradeable_on=hyperliquid` is set, each item SHALL include an additional `hyperliquid` object with `hl_symbol`, `lot_size`, `tick_size`, `max_leverage`, and `is_active` for the requested network. When `sources` is provided, only instruments present in **all** specified sources (i.e. the intersection) SHALL be returned.
 
 #### Scenario: List active instruments
 - **WHEN** `GET /v1/instruments?asset_class=crypto&is_active=true` is called
@@ -40,6 +40,29 @@ The system SHALL expose a REST endpoint `GET /v1/instruments` that returns a pag
 #### Scenario: Invalid tradeable_on value returns 400
 - **WHEN** `GET /v1/instruments?tradeable_on=unknown_exchange` is called
 - **THEN** HTTP 400 is returned with a JSON error body listing valid values
+
+#### Scenario: Filter by single source
+- **WHEN** `GET /v1/instruments?sources=eodhd` is called
+- **THEN** only instruments with a row `source_short_name = 'eodhd'` in
+  `instrument_source_intersection` are returned
+
+#### Scenario: Filter by intersection of two sources
+- **WHEN** `GET /v1/instruments?sources=eodhd,hl` is called
+- **THEN** only instruments present in **both** `eodhd` and `hl` in
+  `instrument_source_intersection` are returned; instruments present in only one source are
+  excluded
+
+#### Scenario: sources omitted returns all instruments
+- **WHEN** `GET /v1/instruments` is called without a `sources` parameter
+- **THEN** the response is identical to the existing behaviour — no source filtering applied
+
+#### Scenario: Unknown source short-name returns empty
+- **WHEN** `GET /v1/instruments?sources=nonexistent` is called
+- **THEN** a paginated response with `total=0` and `items=[]` is returned (no error)
+
+#### Scenario: sources combined with asset_class filter
+- **WHEN** `GET /v1/instruments?asset_class=crypto&sources=eodhd,hl` is called
+- **THEN** only active crypto instruments present in both `eodhd` and `hl` sources are returned
 
 ---
 

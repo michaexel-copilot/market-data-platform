@@ -6,20 +6,39 @@ Defines the OHLCV storage schema, native intervals, derived views, range query b
 
 ## Requirements
 
-### Requirement: OHLCV table schema
-The system SHALL store OHLCV data in a single `ohlcv` table with columns: `instrument_id` (VARCHAR, NOT NULL), `interval` (VARCHAR: `1m`, `5m`, `1h`, `1d`), `ts` (TIMESTAMPTZ, NOT NULL), `open`, `high`, `low`, `close` (DOUBLE, NOT NULL), `volume`, `vwap`, `trade_count`, `market_cap` (nullable), `source` (VARCHAR), `ingested_at` (TIMESTAMPTZ). The PRIMARY KEY SHALL be `(instrument_id, interval, ts)`.
+### Requirement: OHLCV time-series storage
+The `ohlcv` table SHALL store multi-interval OHLCV bars with the PostgreSQL schema below. Column types are updated from DuckDB to PostgreSQL native types. The table SHALL be a TimescaleDB hypertable (managed by the `postgresql-backend` capability); the schema-level PRIMARY KEY constraint is retained.
 
-#### Scenario: OHLCV row inserted
-- **WHEN** an ingestion job produces a candle for a given instrument, interval, and timestamp
-- **THEN** a row is inserted into `ohlcv` with all non-null required fields populated and `ingested_at` set to the current UTC time
+```sql
+CREATE TABLE IF NOT EXISTS ohlcv (
+    instrument_id TEXT            NOT NULL,
+    interval      TEXT            NOT NULL CHECK (interval IN ('1m', '5m', '1h', '1d')),
+    ts            TIMESTAMPTZ     NOT NULL,
+    open          DOUBLE PRECISION NOT NULL,
+    high          DOUBLE PRECISION NOT NULL,
+    low           DOUBLE PRECISION NOT NULL,
+    close         DOUBLE PRECISION NOT NULL,
+    volume        DOUBLE PRECISION,
+    vwap          DOUBLE PRECISION,
+    trade_count   INTEGER,
+    market_cap    DOUBLE PRECISION,
+    source        TEXT            NOT NULL,
+    ingested_at   TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    PRIMARY KEY (instrument_id, interval, ts)
+);
+```
 
-#### Scenario: Duplicate candle upserted
-- **WHEN** a second ingestion run produces a candle for the same `(instrument_id, interval, ts)`
-- **THEN** the existing row is replaced (`INSERT OR REPLACE`) and `ingested_at` is updated
+#### Scenario: OHLCV upsert
+- **WHEN** `INSERT INTO ohlcv ... ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET open = excluded.open, ...` is executed
+- **THEN** the row is inserted on first call and updated on subsequent calls for the same primary key
 
 #### Scenario: Partial fields allowed
 - **WHEN** a provider does not supply `vwap` or `trade_count` for a candle
 - **THEN** those fields are stored as `NULL`; the row is accepted
+
+#### Scenario: Time-range query
+- **WHEN** `SELECT * FROM ohlcv WHERE instrument_id = %s AND interval = %s AND ts >= %s AND ts <= %s ORDER BY ts ASC` is executed
+- **THEN** PostgreSQL uses hypertable chunk exclusion to scan only relevant monthly partitions
 
 ---
 

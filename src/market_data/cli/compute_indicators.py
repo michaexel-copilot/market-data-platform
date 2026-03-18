@@ -1,4 +1,4 @@
-"""compute-indicators CLI — delegates to the REST service to avoid DuckDB lock conflicts."""
+"""compute-indicators CLI — delegates to the REST service to avoid database lock conflicts."""
 from __future__ import annotations
 
 import argparse

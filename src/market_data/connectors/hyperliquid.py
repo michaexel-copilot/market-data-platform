@@ -112,7 +112,7 @@ def reconcile_hl_pairs(
 
     Args:
         pairs: List of HLPairRecord objects from fetch_hl_pairs.
-        conn: An active psycopg/DuckDB connection with an `execute` method.
+        conn: An active psycopg connection with an `execute` method.
     """
     if not pairs:
         return []

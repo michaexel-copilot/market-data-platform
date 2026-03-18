@@ -16,7 +16,7 @@ _INTERVALS_TO_ARCHIVE = ("1m", "5m")
 
 
 def archive_old_ohlcv() -> dict[str, int]:
-    """Export rows older than *retention* days to Parquet, then delete from DuckDB.
+    """Export rows older than *retention* days to Parquet, then delete from the database.
 
     Returns:
         Dict mapping interval → number of rows archived.
