@@ -315,7 +315,7 @@
         hx-get="/asset/{{ symbol }}/best-sma"
         hx-include="#sl-short-input, #sl-long-input, #pos-input"
         hx-swap="none"
-        hx-trigger="{{ 'click, load' if not auto_sma else 'click' }}"
+        hx-trigger="{{ 'click, load' if load_best_sma_on_render else 'click' }}"
         hx-indicator="#find-best-sma-btn"
         hx-on::after-request="
           try {
@@ -338,6 +338,12 @@
         <span class="htmx-indicator spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
         Find Best SMA
       </button>
+      <span
+        class="badge ms-2 {{ 'bg-success-subtle text-success-emphasis border border-success-subtle' if load_best_sma_on_render else 'bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle' }}"
+        title="Debug: indicates whether this render auto-fetches best SMA on load"
+      >
+        {{ 'init-load: auto best SMA ON' if load_best_sma_on_render else 'manual-update: auto best SMA OFF' }}
+      </span>
     </div>
 
     <!-- Hidden inputs -->
@@ -397,6 +403,12 @@
     <hr class="my-2">
     <div class="text-muted mb-1" style="font-size:0.78rem">
       <span class="badge bg-info text-dark me-1">Out-of-Sample (Validation)</span>
+      <span
+        class="badge me-1 {{ 'bg-success-subtle text-success-emphasis border border-success-subtle' if oos_cache_state == 'hit' else ('bg-warning-subtle text-warning-emphasis border border-warning-subtle' if oos_cache_state == 'miss' else ('bg-danger-subtle text-danger-emphasis border border-danger-subtle' if oos_cache_state == 'error' else 'bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle')) }}"
+        title="Debug: OOS cache status for current SMA/SL/position parameters"
+      >
+        OOS cache: {{ oos_cache_state|upper }}
+      </span>
       {{ oos_val_from }} &rarr; {{ oos_val_to }}
     </div>
     <div class="d-flex gap-3 mb-2 flex-wrap">

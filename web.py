@@ -186,6 +186,84 @@ ASSET_BY_SYMBOL: dict[str, dict[str, Any]] = {
 OOS_CACHE: dict[tuple, dict] = {}
 
 
+def _oos_summary(trades: list[dict]) -> dict[str, float | int | None]:
+    closed = [t for t in trades if not t["is_open"] and t["pnl"] is not None]
+    total = sum(t["pnl"] for t in closed)
+    count = len(closed)
+    return {
+        "count": count,
+        "total_pnl": total,
+        "avg_pnl": total / count if count else None,
+    }
+
+
+def _get_or_compute_oos(
+    symbol_upper: str,
+    sma_low: int,
+    sma_high: int,
+    sl_short: int,
+    sl_long: int,
+    pos: int,
+) -> tuple[dict | None, str]:
+    key = (symbol_upper, sma_low, sma_high, sl_short, sl_long, pos)
+    oos_cached = OOS_CACHE.get(key)
+    if oos_cached is not None:
+        return oos_cached, "hit"
+
+    try:
+        source_key, multiplier = resolve_source_key(symbol_upper)
+        candles_scaled = fetch_ohlcv(source_key)
+        if multiplier != 1.0:
+            candles_scaled = [
+                {
+                    **c,
+                    "open": c["open"] * multiplier,
+                    "high": c["high"] * multiplier,
+                    "low": c["low"] * multiplier,
+                    "close": c["close"] * multiplier,
+                }
+                for c in candles_scaled
+            ]
+
+        if not candles_scaled:
+            return None, "empty"
+
+        split_idx = int(len(candles_scaled) * 0.8)
+        val_candles = candles_scaled[split_idx:]
+        train_candles = candles_scaled[:split_idx]
+        if not val_candles:
+            return None, "empty"
+
+        val_sma_lows = _sma([c["low"] for c in val_candles], sma_low)
+        val_sma_highs = _sma([c["high"] for c in val_candles], sma_high)
+        val_short = backtest_short_strategy(
+            val_candles,
+            val_sma_lows,
+            position_size_usd=float(pos),
+            stop_loss_pct=sl_short / 100.0,
+        )
+        val_long = backtest_long_strategy(
+            val_candles,
+            val_sma_highs,
+            position_size_usd=float(pos),
+            stop_loss_pct=sl_long / 100.0,
+        )
+
+        oos_data = {
+            "short_summary": _oos_summary(val_short),
+            "long_summary": _oos_summary(val_long),
+            "train_date_from": str(train_candles[0]["date"]) if train_candles else "",
+            "train_date_to": str(train_candles[-1]["date"]) if train_candles else "",
+            "val_date_from": str(val_candles[0]["date"]) if val_candles else "",
+            "val_date_to": str(val_candles[-1]["date"]) if val_candles else "",
+        }
+        OOS_CACHE[key] = oos_data
+        return oos_data, "miss"
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] OOS validation failed for {symbol_upper}: {exc}")
+        return None, "error"
+
+
 # ---------------------------------------------------------------------------
 # Chart helpers
 # ---------------------------------------------------------------------------
@@ -457,8 +535,15 @@ async def asset_detail(
         for i, t in enumerate(raw_long_trades)
     ]
 
-    # Look up out-of-sample validation results produced by a prior best-SMA search.
-    oos_data = OOS_CACHE.get((sym_upper, sma, sma_high, sl_short, sl_long, pos))
+    # Compute out-of-sample validation for the currently selected parameters.
+    oos_data, oos_cache_state = _get_or_compute_oos(sym_upper, sma, sma_high, sl_short, sl_long, pos)
+    # Only auto-fetch best SMA on a true initial load where SMA params were not
+    # explicitly provided by the caller.
+    load_best_sma_on_render = (
+        not auto_sma
+        and "sma" not in request.query_params
+        and "sma_high" not in request.query_params
+    )
 
     return TEMPLATES.TemplateResponse(
         "asset_detail.html",
@@ -488,6 +573,8 @@ async def asset_detail(
             "eur_usd_rate":      fetch_eur_usd_rate(),
             "order_ctx":         order_ctx,
             "auto_sma":          auto_sma,
+            "load_best_sma_on_render": load_best_sma_on_render,
+            "oos_cache_state":  oos_cache_state,
             "oos_short_summary": oos_data["short_summary"]   if oos_data else None,
             "oos_long_summary":  oos_data["long_summary"]    if oos_data else None,
             "oos_train_from":    oos_data["train_date_from"] if oos_data else None,
@@ -546,51 +633,7 @@ async def best_sma_endpoint(
         sma_low  = int(indicator_map["sma_low"])
         sma_high = int(indicator_map["sma_high"])
 
-        # Check OOS cache before rerunning validation.
-        oos_cached = OOS_CACHE.get((symbol.upper(), sma_low, sma_high, sl_short, sl_long, pos))
-        if oos_cached is not None:
-            return JSONResponse({"sma": sma_low, "sma_high": sma_high})
-
-        # Run OOS validation locally using the returned SMA values and fresh candles.
-        sym_upper = symbol.upper()
-        source_key, multiplier = resolve_source_key(sym_upper)
-        candles_scaled = fetch_ohlcv(source_key)
-        if multiplier != 1.0:
-            candles_scaled = [
-                {**c, "open": c["open"] * multiplier, "high": c["high"] * multiplier,
-                 "low": c["low"] * multiplier, "close": c["close"] * multiplier}
-                for c in candles_scaled
-            ]
-
-        split_idx     = int(len(candles_scaled) * 0.8)
-        val_candles   = candles_scaled[split_idx:]
-        train_candles = candles_scaled[:split_idx]
-        val_sma_lows  = _sma([c["low"]  for c in val_candles], sma_low)
-        val_sma_highs = _sma([c["high"] for c in val_candles], sma_high)
-        val_short = backtest_short_strategy(
-            val_candles, val_sma_lows,
-            position_size_usd=float(pos), stop_loss_pct=sl_short / 100.0,
-        )
-        val_long = backtest_long_strategy(
-            val_candles, val_sma_highs,
-            position_size_usd=float(pos), stop_loss_pct=sl_long / 100.0,
-        )
-
-        def _oos_summary(trades: list) -> dict:
-            closed = [t for t in trades if not t["is_open"] and t["pnl"] is not None]
-            total  = sum(t["pnl"] for t in closed)
-            count  = len(closed)
-            return {"count": count, "total_pnl": total, "avg_pnl": total / count if count else None}
-
-        oos_data = {
-            "short_summary":   _oos_summary(val_short),
-            "long_summary":    _oos_summary(val_long),
-            "train_date_from": str(train_candles[0]["date"])  if train_candles else "",
-            "train_date_to":   str(train_candles[-1]["date"]) if train_candles else "",
-            "val_date_from":   str(val_candles[0]["date"])    if val_candles else "",
-            "val_date_to":     str(val_candles[-1]["date"])   if val_candles else "",
-        }
-        OOS_CACHE[(symbol.upper(), sma_low, sma_high, sl_short, sl_long, pos)] = oos_data
+        _get_or_compute_oos(symbol.upper(), sma_low, sma_high, sl_short, sl_long, pos)
 
         return JSONResponse({"sma": sma_low, "sma_high": sma_high})
     except Exception as exc:  # noqa: BLE001

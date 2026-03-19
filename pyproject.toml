@@ -1,5 +1,5 @@
 [project]
-name = "find-short-opportunities"
+name = "short-desk"
 version = "0.1.0"
 description = "Fetch market caps from CoinMarketCap and merge with Hyperliquid testnet pairs"
 readme = "README.md"
@@ -26,7 +26,7 @@ serve = "web:main"
 package = true
 
 [tool.uv.sources]
-hl-client = {path = "/work/projekte/hyperliquid-python/hl_client"}
+hl-client = {path = "/work/trading-platform/hyperliquid-python/hl_client"}
 
 [build-system]
 requires = ["hatchling"]
