@@ -182,6 +182,7 @@ def import_from_cache(
 
     rows_imported = 0
     files_processed = 0
+    errors: list[str] = []
     for path in matching_files:
         try:
             n = _insert_file_fast(path, instrument_id, interval, source_short_name, conn)
@@ -190,6 +191,15 @@ def import_from_cache(
             logger.info("Inserted/updated %d rows from %s", n, path)
         except Exception as exc:
             logger.error("Failed to import %s: %s", path, exc)
+            errors.append(f"{path.name}: {exc}")
+
+    if errors:
+        return {
+            "status": "error",
+            "rows_imported": rows_imported,
+            "files_processed": files_processed,
+            "errors": errors,
+        }
 
     return {
         "status": "ok",

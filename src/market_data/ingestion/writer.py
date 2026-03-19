@@ -41,26 +41,27 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
         )
         for r in records
     ]
-    conn.executemany(
-        """
-        INSERT INTO ohlcv
-            (instrument_id, interval, ts, open, high, low, close,
-             volume, vwap, trade_count, market_cap, source, ingested_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
-            open       = excluded.open,
-            high       = excluded.high,
-            low        = excluded.low,
-            close      = excluded.close,
-            volume     = COALESCE(excluded.volume, ohlcv.volume),
-            vwap       = COALESCE(excluded.vwap, ohlcv.vwap),
-            trade_count = COALESCE(excluded.trade_count, ohlcv.trade_count),
-            market_cap  = COALESCE(excluded.market_cap, ohlcv.market_cap),
-            source      = excluded.source,
-            ingested_at = excluded.ingested_at
-        """,
-        rows,
-    )
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO ohlcv
+                (instrument_id, interval, ts, open, high, low, close,
+                 volume, vwap, trade_count, market_cap, source, ingested_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
+                open       = excluded.open,
+                high       = excluded.high,
+                low        = excluded.low,
+                close      = excluded.close,
+                volume     = COALESCE(excluded.volume, ohlcv.volume),
+                vwap       = COALESCE(excluded.vwap, ohlcv.vwap),
+                trade_count = COALESCE(excluded.trade_count, ohlcv.trade_count),
+                market_cap  = COALESCE(excluded.market_cap, ohlcv.market_cap),
+                source      = excluded.source,
+                ingested_at = excluded.ingested_at
+            """,
+            rows,
+        )
     logger.debug("Wrote %d OHLCV records", len(rows))
     return len(rows)
 
@@ -94,22 +95,23 @@ def write_instruments(records: list[InstrumentRecord]) -> int:
         )
         for r in records
     ]
-    conn.executemany(
-        """
-        INSERT INTO instruments
-            (instrument_id, ticker, full_name, description, asset_class, exchange,
-             sector, industry, quote_currency, launch_date, is_active, logo_url,
-             website_url, last_updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (instrument_id) DO UPDATE SET
-            ticker           = excluded.ticker,
-            full_name        = COALESCE(excluded.full_name, instruments.full_name),
-            asset_class      = excluded.asset_class,
-            exchange         = COALESCE(excluded.exchange, instruments.exchange),
-            is_active        = excluded.is_active,
-            last_updated_at  = excluded.last_updated_at
-        """,
-        rows,
-    )
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO instruments
+                (instrument_id, ticker, full_name, description, asset_class, exchange,
+                 sector, industry, quote_currency, launch_date, is_active, logo_url,
+                 website_url, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (instrument_id) DO UPDATE SET
+                ticker           = excluded.ticker,
+                full_name        = COALESCE(excluded.full_name, instruments.full_name),
+                asset_class      = excluded.asset_class,
+                exchange         = COALESCE(excluded.exchange, instruments.exchange),
+                is_active        = excluded.is_active,
+                last_updated_at  = excluded.last_updated_at
+            """,
+            rows,
+        )
     logger.debug("Wrote %d instrument records", len(rows))
     return len(rows)

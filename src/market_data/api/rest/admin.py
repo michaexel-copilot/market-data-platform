@@ -34,6 +34,14 @@ class ComputeIndicatorsRequest(BaseModel):
     pos_usd: float = 100.0
 
 
+class ComputeIndicatorsV2Request(BaseModel):
+    symbol: str | None = None
+    sl_short: float = 10.0
+    sl_long: float = 10.0
+    tp_pct: float = 5.0
+    pos_usd: float = 100.0
+
+
 class ImportOhlcvRequest(BaseModel):
     interval: str
     symbol: str | None = None
@@ -184,6 +192,9 @@ async def run_import_ohlcv_cache(req: ImportOhlcvCacheRequest) -> dict:
 
     if result.get("status") == "folder_not_found":
         result["source_short_name"] = source_short_name
+    elif result.get("status") == "error":
+        details = result.get("errors") or [result.get("message", "Unknown import error")]
+        raise HTTPException(status_code=500, detail="; ".join(str(d) for d in details))
 
     return result
 
@@ -256,6 +267,76 @@ def run_compute_indicators(req: ComputeIndicatorsRequest) -> dict:
                         computed_at     = excluded.computed_at
                     """,
                     [instrument_id, req.strategy, indicator_name, float(indicator_value), params_json],
+                )
+            elapsed = time.monotonic() - t0
+            ok_count += 1
+            results.append({"ticker": ticker, "status": "ok", "elapsed_s": round(elapsed, 3)})
+        except Exception as exc:  # noqa: BLE001
+            elapsed = time.monotonic() - t0
+            err_count += 1
+            results.append({"ticker": ticker, "status": "error", "error": str(exc), "elapsed_s": round(elapsed, 3)})
+
+    return {"ok": ok_count, "errors": err_count, "results": results}
+
+
+@router.post("/compute-indicators-v2")
+def run_compute_indicators_v2(req: ComputeIndicatorsV2Request) -> dict:
+    """Compute best_sma_exit_v1 indicators for one or all active instruments."""
+    from market_data.strategies.registry import STRATEGY_REGISTRY
+
+    strategy_name = "best_sma_exit_v1"
+    strategy_fn = STRATEGY_REGISTRY[strategy_name]
+    parameters = {
+        "sl_short": req.sl_short,
+        "sl_long": req.sl_long,
+        "tp_pct": req.tp_pct,
+        "pos_usd": req.pos_usd,
+    }
+
+    conn = get_connection()
+
+    if req.symbol:
+        from market_data.db.resolver import resolve_symbol
+        from market_data.models.api import SymbolNotFoundError
+
+        try:
+            instrument_id = resolve_symbol(req.symbol)
+        except SymbolNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticker_row = conn.execute(
+            "SELECT ticker FROM instruments WHERE instrument_id = %s LIMIT 1",
+            [instrument_id],
+        ).fetchone()
+        rows = [(instrument_id, ticker_row[0] if ticker_row else req.symbol)]
+    else:
+        rows = conn.execute(
+            "SELECT instrument_id, ticker FROM instruments WHERE is_active = TRUE ORDER BY ticker"
+        ).fetchall()
+
+    import json as _json
+
+    ok_count = 0
+    err_count = 0
+    results = []
+
+    for instrument_id, ticker in rows:
+        t0 = time.monotonic()
+        try:
+            indicators = strategy_fn(instrument_id, parameters)
+            params_json = _json.dumps(parameters)
+            for indicator_name, indicator_value in indicators.items():
+                conn.execute(
+                    """
+                    INSERT INTO trading_strategies
+                        (instrument_id, strategy_name, indicator_name, indicator_value, parameters, computed_at)
+                    VALUES (%s, %s, %s, %s, %s, now())
+                    ON CONFLICT (instrument_id, strategy_name, indicator_name)
+                    DO UPDATE SET
+                        indicator_value = excluded.indicator_value,
+                        parameters      = excluded.parameters,
+                        computed_at     = excluded.computed_at
+                    """,
+                    [instrument_id, strategy_name, indicator_name, float(indicator_value), params_json],
                 )
             elapsed = time.monotonic() - t0
             ok_count += 1

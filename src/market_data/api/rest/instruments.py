@@ -254,8 +254,8 @@ async def get_ohlcv_availability(symbol: str) -> dict:
         SELECT MIN(week_bucket), MAX(week_bucket)
         FROM (
             SELECT DATE_TRUNC('week', ts) -
-                   ((EXTRACT(DOW FROM DATE_TRUNC('week', ts))::INTEGER + 6) % 7
-                    % 4) * INTERVAL '7 days' AS week_bucket
+                   ((EXTRACT(DOW FROM DATE_TRUNC('week', ts))::INTEGER + 6) %% 7
+                    %% 4) * INTERVAL '7 days' AS week_bucket
             FROM ohlcv
             WHERE instrument_id = %s AND interval = '1d'
         ) sub

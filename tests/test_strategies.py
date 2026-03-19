@@ -4,6 +4,10 @@ from __future__ import annotations
 import pytest
 
 from market_data.strategies.backtest import sma, backtest_short_strategy, backtest_long_strategy
+from market_data.strategies.backtest_exit_v1 import (
+    backtest_long_strategy_exit_v1,
+    backtest_short_strategy_exit_v1,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +111,39 @@ def test_long_stop_loss_triggers():
     assert closed[0]["pnl"] < 0
 
 
+def test_short_take_profit_pct_triggers_before_sma_exit():
+    closes = [100.0, 95.0, 84.0, 90.0]
+    sma_vals = [97.0, 97.0, 90.0, 89.0]
+    candles = _make_candles(closes)
+    trades = backtest_short_strategy_exit_v1(
+        candles,
+        sma_vals,
+        position_size_usd=100.0,
+        stop_loss_pct=0.10,
+        take_profit_pct=0.10,
+    )
+    closed = [t for t in trades if not t["is_open"]]
+    assert len(closed) == 1
+    assert closed[0]["exit_reason"] == "take_profit_pct"
+
+
+def test_long_take_profit_sma_triggers_on_close_below_sma():
+    closes = [80.0, 110.0, 112.0, 106.0]
+    sma_vals = [95.0, 95.0, 108.0, 108.0]
+    candles = _make_candles(closes)
+    trades = backtest_long_strategy_exit_v1(
+        candles,
+        sma_vals,
+        position_size_usd=100.0,
+        stop_loss_pct=0.10,
+        take_profit_pct=0.30,
+    )
+    closed = [t for t in trades if not t["is_open"]]
+    assert len(closed) == 1
+    assert closed[0]["exit_reason"] == "take_profit_sma"
+    assert closed[0]["pnl"] is not None
+
+
 # ---------------------------------------------------------------------------
 # compute_best_sma()
 # ---------------------------------------------------------------------------
@@ -156,4 +193,24 @@ def test_strategy_registry_contains_best_sma(db_with_ohlcv):
     from market_data.strategies.registry import STRATEGY_REGISTRY
     assert "best_sma" in STRATEGY_REGISTRY
     result = STRATEGY_REGISTRY["best_sma"]("uuid-btc-001", {})
+    assert "sma_low" in result
+
+
+def test_compute_best_sma_exit_v1_returns_valid_pair(db_with_ohlcv):
+    from market_data.strategies.best_sma_exit_v1 import compute_best_sma_exit_v1
+
+    result = compute_best_sma_exit_v1(
+        "uuid-btc-001",
+        {"sl_short": 10, "sl_long": 10, "tp_pct": 5, "pos_usd": 100},
+    )
+    assert "sma_low" in result and "sma_high" in result
+    assert 3 <= result["sma_low"] <= 50
+    assert 3 <= result["sma_high"] <= 50
+
+
+def test_strategy_registry_contains_best_sma_exit_v1(db_with_ohlcv):
+    from market_data.strategies.registry import STRATEGY_REGISTRY
+
+    assert "best_sma_exit_v1" in STRATEGY_REGISTRY
+    result = STRATEGY_REGISTRY["best_sma_exit_v1"]("uuid-btc-001", {})
     assert "sma_low" in result

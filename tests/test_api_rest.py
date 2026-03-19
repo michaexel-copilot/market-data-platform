@@ -23,6 +23,18 @@ def patched_db(db_conn):
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
         ("uuid-btc-001", "1d", "2023-11-14 00:00:00+00", 35000, 36000, 34000, 35500, 1000, "test"),
     )
+    db_conn.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "1h", "2023-11-14 00:00:00+00", 35000, 35500, 34900, 35200, 500, "test"),
+    )
+    db_conn.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "1h", "2023-11-14 23:00:00+00", 35200, 35800, 35100, 35600, 500, "test"),
+    )
     yield db_conn
 
 
@@ -138,6 +150,54 @@ async def test_post_compute_then_get(patched_db, app):
         # GET should now return 200
         resp = await client.get("/v1/trading-strategies/btc?strategy_name=best_sma")
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_compute_v2_and_get_v2(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        compute_resp = await client.post(
+            "/v1/trading-strategies/btc/compute-v2",
+            json={"pos_usd": 120.0},
+        )
+    assert compute_resp.status_code == 200
+    compute_data = compute_resp.json()
+    assert compute_data["strategy"] == "best_sma_exit_v1"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        get_resp = await client.get("/v1/trading-strategies/btc/v2")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    indicator_names = {item["indicator_name"] for item in data["items"]}
+    assert "sma_low" in indicator_names
+    assert "sma_high" in indicator_names
+
+
+@pytest.mark.asyncio
+async def test_backtest_v2(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/trading-strategies/btc/backtest-v2",
+            json={"pos_usd": 100.0, "max_trades": 50},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["strategy"] == "best_sma_exit_v1"
+    assert "summary" in data
+    assert "trades" in data
+
+
+@pytest.mark.asyncio
+async def test_admin_compute_indicators_v2(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/admin/compute-indicators-v2",
+            json={"symbol": "BTC", "pos_usd": 150.0},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] == 1
+    assert data["errors"] == 0
+    assert data["results"][0]["status"] == "ok"
 
 
 # ---------------------------------------------------------------------------

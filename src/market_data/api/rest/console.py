@@ -103,6 +103,11 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       font-size: 0.85rem; background: #fff;
     }
     #DDL_OHLCV_PERIOD:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
+    #INP_BEST_SMA_POS_USD {
+      width: 120px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px;
+      font-size: 0.85rem; background: #fff;
+    }
+    #INP_BEST_SMA_POS_USD:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
 
     /* ── PANE_FUNDAMENTALS ── */
     #PANE_FUNDAMENTALS { flex: 1; overflow-y: auto; padding: 24px; }
@@ -170,6 +175,8 @@ _CONSOLE_HTML = """<!DOCTYPE html>
         <option value="1mo">1mo</option>
         <option value="1y">1y</option>
       </select>
+      <input id="INP_BEST_SMA_POS_USD" type="number" min="1" step="1" value="100" disabled>
+      <button id="BTN_COMPUTE_BEST_SMA_V2" disabled>Compute BEST SMA Exit V1</button>
     </div>
     <div id="PANE_FUNDAMENTALS">
       <p class="placeholder">Select an instrument to view details</p>
@@ -195,6 +202,8 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   const btnFundamentals   = document.getElementById('BTN_UPDATE_FUNDAMENTALS');
   const btnOhlcv          = document.getElementById('BTN_UPDATE_OHLCV');
   const ddlPeriod         = document.getElementById('DDL_OHLCV_PERIOD');
+  const inpBestSmaPosUsd  = document.getElementById('INP_BEST_SMA_POS_USD');
+  const btnBestSmaV2      = document.getElementById('BTN_COMPUTE_BEST_SMA_V2');
   const btnMigrate        = document.getElementById('BTN_MIGRATE_FUNDAMENTALS');
 
   // ── Asset-class selector ──
@@ -304,10 +313,11 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   async function loadFundamentals(instrumentId, ticker, fullName) {
     fundamentalsPane.innerHTML = '<p class="placeholder">Loading…</p>';
     try {
-      const [fundRes, availRes, matrixRes] = await Promise.all([
+      const [fundRes, availRes, matrixRes, bestSmaRes] = await Promise.all([
         fetch(`/v1/instruments/${instrumentId}/fundamentals`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-availability`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-data-available`),
+        fetch(`/v1/trading-strategies/${instrumentId}/v2`),
       ]);
       if (!fundRes.ok) {
         fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals (HTTP ${fundRes.status})</p>`;
@@ -358,10 +368,32 @@ _CONSOLE_HTML = """<!DOCTYPE html>
         }
       }
 
+      // BEST SMA Exit V1 section
+      let bestSmaV2Html = '<p style="color:#999;font-size:0.85rem">No BEST SMA Exit V1 data available.</p>';
+      if (bestSmaRes.ok) {
+        const bestSmaData = await bestSmaRes.json();
+        const items = bestSmaData.items || [];
+        if (items.length > 0) {
+          const values = {};
+          items.forEach(it => { values[it.indicator_name] = it.indicator_value; });
+          const params = items[0].parameters || {};
+          const computedAt = items[0].computed_at ? String(items[0].computed_at).slice(0, 19).replace('T', ' ') : '—';
+          bestSmaV2Html = `
+            <table class="ohlcv-range-table"><tbody>
+              <tr><td>sma_low</td><td>${escHtml(String(values.sma_low ?? '—'))}</td></tr>
+              <tr><td>sma_high</td><td>${escHtml(String(values.sma_high ?? '—'))}</td></tr>
+              <tr><td>pos_usd</td><td>${escHtml(String(params.pos_usd ?? '—'))}</td></tr>
+              <tr><td>computed_at</td><td>${escHtml(computedAt)}</td></tr>
+            </tbody></table>
+          `;
+        }
+      }
+
       fundamentalsPane.innerHTML =
         `<h2>${title}</h2><table>${rows}</table>` +
         `<div class="ohlcv-range-section"><h3>OHLCV Time Range</h3>${ohlcvRangeHtml}</div>` +
-        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '');
+        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '') +
+        `<div class="best-sma-v2-section"><h3>BEST SMA Exit V1</h3>${bestSmaV2Html}</div>`;
     } catch (e) {
       fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals: ${escHtml(e.message)}</p>`;
     }
@@ -372,6 +404,8 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     btnFundamentals.disabled = !enabled;
     btnOhlcv.disabled        = !enabled;
     ddlPeriod.disabled       = !enabled;
+    inpBestSmaPosUsd.disabled = !enabled;
+    btnBestSmaV2.disabled     = !enabled;
   }
 
   // ── BTN_UPDATE_FUNDAMENTALS stub ──
@@ -410,6 +444,34 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     } finally {
       btnOhlcv.disabled = false;
       btnOhlcv.textContent = 'Update OHLCV Data';
+    }
+  });
+
+  // ── BTN_COMPUTE_BEST_SMA_V2 — compute enhanced BEST SMA strategy ──
+  btnBestSmaV2.addEventListener('click', async () => {
+    if (!selectedInstrumentId) return;
+    const posUsd = Number(inpBestSmaPosUsd.value || '100');
+    btnBestSmaV2.disabled = true;
+    btnBestSmaV2.textContent = 'Computing…';
+    try {
+      const res = await fetch(`/v1/trading-strategies/${selectedInstrumentId}/compute-v2`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pos_usd: posUsd}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data.error) ? escHtml(String(data.error)) : `HTTP ${res.status}`;
+        _prependOhlcvMessage(`<p class="error">BEST SMA Exit V1 compute failed: ${msg}</p>`);
+        return;
+      }
+      _prependOhlcvMessage('<p class="import-ok">BEST SMA Exit V1 computed successfully.</p>');
+      _refreshBestSmaV2Section(selectedInstrumentId);
+    } catch (e) {
+      _prependOhlcvMessage(`<p class="error">BEST SMA Exit V1 compute failed: ${escHtml(e.message)}</p>`);
+    } finally {
+      btnBestSmaV2.disabled = false;
+      btnBestSmaV2.textContent = 'Compute BEST SMA Exit V1';
     }
   });
 
@@ -460,6 +522,39 @@ _CONSOLE_HTML = """<!DOCTYPE html>
           matrixEl.innerHTML = `<h3>OHLCV Data Available</h3><table class="avail-table"><thead><tr><th>Source</th>${headerCols}</tr></thead><tbody>${matrixRows}</tbody></table>`;
         }
       }
+    } catch (_) { /* silent */ }
+  }
+
+  async function _refreshBestSmaV2Section(instrumentId) {
+    try {
+      const section = fundamentalsPane.querySelector('.best-sma-v2-section');
+      if (!section) return;
+
+      const res = await fetch(`/v1/trading-strategies/${instrumentId}/v2`);
+      if (!res.ok) {
+        section.innerHTML = '<h3>BEST SMA Exit V1</h3><p style="color:#999;font-size:0.85rem">No BEST SMA Exit V1 data available.</p>';
+        return;
+      }
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        section.innerHTML = '<h3>BEST SMA Exit V1</h3><p style="color:#999;font-size:0.85rem">No BEST SMA Exit V1 data available.</p>';
+        return;
+      }
+
+      const values = {};
+      items.forEach(it => { values[it.indicator_name] = it.indicator_value; });
+      const params = items[0].parameters || {};
+      const computedAt = items[0].computed_at ? String(items[0].computed_at).slice(0, 19).replace('T', ' ') : '—';
+      section.innerHTML = `
+        <h3>BEST SMA Exit V1</h3>
+        <table class="ohlcv-range-table"><tbody>
+          <tr><td>sma_low</td><td>${escHtml(String(values.sma_low ?? '—'))}</td></tr>
+          <tr><td>sma_high</td><td>${escHtml(String(values.sma_high ?? '—'))}</td></tr>
+          <tr><td>pos_usd</td><td>${escHtml(String(params.pos_usd ?? '—'))}</td></tr>
+          <tr><td>computed_at</td><td>${escHtml(computedAt)}</td></tr>
+        </tbody></table>
+      `;
     } catch (_) { /* silent */ }
   }
 
