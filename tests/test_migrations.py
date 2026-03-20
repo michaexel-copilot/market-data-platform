@@ -154,3 +154,33 @@ def test_ohlcv_tick_1d_backfill(db_conn):
             VALUES ('TEST-TICK-1D-NULL', '1d', '2026-01-02T00:00:00Z', 1, 1, 1, 1, 'test', now(), NULL)
             """
         )
+
+
+def test_asset_not_found_record_and_load(db_conn):
+    """record_not_found upserts correctly; load_blocked returns right pairs."""
+    from market_data.db.asset_not_found import load_blocked, record_not_found
+
+    # Initially no blocked entries for '5m'
+    assert load_blocked(db_conn, "5m") == frozenset()
+
+    # First occurrence: inserts row
+    record_not_found(db_conn, "home3", "eodhd", "5m", "https://eodhd.com/api/intraday/home3?interval=5m")
+    result = load_blocked(db_conn, "5m")
+    assert ("home3", "eodhd") in result
+
+    # Second occurrence: updates last_seen_at, does not duplicate
+    record_not_found(db_conn, "home3", "eodhd", "5m", "https://eodhd.com/api/intraday/home3?interval=5m")
+    result2 = load_blocked(db_conn, "5m")
+    assert len(result2) == 1
+    assert ("home3", "eodhd") in result2
+
+    # url is preserved from first insertion
+    row = db_conn.execute(
+        "SELECT url FROM asset_not_found WHERE instrument_id = 'home3' AND data_source = 'eodhd'"
+    ).fetchone()
+    assert row is not None and "home3" in row[0]
+
+    # A 1h entry for a different asset does NOT pollute the 5m blocked set
+    record_not_found(db_conn, "other-asset", "eodhd", "1h", "https://eodhd.com/api/intraday/other-asset?interval=1h")
+    assert ("other-asset", "eodhd") not in load_blocked(db_conn, "5m")
+    assert ("other-asset", "eodhd") in load_blocked(db_conn, "1h")

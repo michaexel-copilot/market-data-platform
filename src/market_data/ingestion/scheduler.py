@@ -55,11 +55,15 @@ def run_scheduler() -> None:
     from market_data.db import migrate
     migrate()
 
+    asyncio.run(_run_async())
+
+
+async def _run_async() -> None:
     scheduler = build_scheduler()
     scheduler.start()
     logger.info("Scheduler started — running ingestion jobs")
     try:
-        asyncio.get_event_loop().run_forever()
+        await asyncio.Event().wait()
     except (KeyboardInterrupt, SystemExit):
         logger.info("Scheduler shutting down")
         scheduler.shutdown(wait=False)

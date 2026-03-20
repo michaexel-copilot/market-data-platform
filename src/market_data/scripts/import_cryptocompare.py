@@ -1,9 +1,28 @@
 """import-cryptocompare — import CryptoCompare hourly OHLCV flat files into the platform.
 
+The tool operates in three steps that must be run in order:
+
+1. **stage** — load a CryptoCompare hourly CSV flat file into the staging table
+   ``stg_cryptocompare_1h``.  The staged rows keep the CryptoCompare instrument ID
+   (e.g. ``BTC-USD``).
+
+2. **migrate** — upsert the staged 1h rows into the production ``ohlcv`` table under the
+   *canonical* CoinMarketCap instrument ID (e.g. ``bitcoin``).  The ``--canonical-instrument-id``
+   argument is **required** and must match an existing or creatable entry in the
+   ``instruments`` table.
+
+3. **aggregate-daily** — derive 1d candles from the staged hourly rows and upsert them into
+   ``ohlcv`` under the same canonical instrument ID.  Must be run after ``migrate``.
+
 Usage:
     import-cryptocompare stage [--file FILE] [--instrument-id ID]
-    import-cryptocompare migrate [--instrument-id ID]
-    import-cryptocompare aggregate-daily [--instrument-id ID]
+    import-cryptocompare migrate [--instrument-id ID] --canonical-instrument-id CANONICAL_ID
+    import-cryptocompare aggregate-daily [--instrument-id ID] --canonical-instrument-id CANONICAL_ID
+
+Example (BTC hourly flat file → canonical 'bitcoin' instrument):
+    import-cryptocompare stage --file /appdata/cryptocompare/1-hour/bitcoin-hourly-ohlcv.txt
+    import-cryptocompare migrate --canonical-instrument-id bitcoin
+    import-cryptocompare aggregate-daily --canonical-instrument-id bitcoin
 """
 from __future__ import annotations
 
@@ -71,8 +90,6 @@ def cmd_stage(args: argparse.Namespace) -> None:
     instrument_id = args.instrument_id
     conn = get_connection()
 
-    _ensure_instrument(conn, instrument_id)
-
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM stg_cryptocompare_1h WHERE instrument_id = %s",
@@ -119,8 +136,11 @@ def cmd_stage(args: argparse.Namespace) -> None:
 
 def cmd_migrate(args: argparse.Namespace) -> None:
     """Upsert staged 1h rows from stg_cryptocompare_1h into production ohlcv."""
-    instrument_id = args.instrument_id
+    staged_instrument_id = args.instrument_id
+    canonical_instrument_id = args.canonical_instrument_id
     conn = get_connection()
+
+    _ensure_instrument(conn, canonical_instrument_id)
 
     with conn.cursor() as cur:
         cur.execute(
@@ -130,7 +150,7 @@ def cmd_migrate(args: argparse.Namespace) -> None:
                  volume, vwap, trade_count, market_cap, source, ingested_at,
                  tick_1h)
             SELECT
-                instrument_id,
+                %s,
                 '1h',
                 datetime,
                 open,
@@ -156,18 +176,21 @@ def cmd_migrate(args: argparse.Namespace) -> None:
                 ingested_at = excluded.ingested_at,
                 tick_1h     = excluded.tick_1h
             """,
-            (instrument_id,),
+            (canonical_instrument_id, staged_instrument_id),
         )
         row_count = cur.rowcount
 
-    _upsert_data_available(conn, instrument_id, has_1h=True)
-    print(f"Migrated {row_count} hourly rows for {instrument_id}")
+    _upsert_data_available(conn, canonical_instrument_id, has_1h=True)
+    print(f"Migrated {row_count} hourly rows for {canonical_instrument_id}")
 
 
 def cmd_aggregate_daily(args: argparse.Namespace) -> None:
     """Derive 1d candles from stg_cryptocompare_1h and upsert into production ohlcv."""
-    instrument_id = args.instrument_id
+    staged_instrument_id = args.instrument_id
+    canonical_instrument_id = args.canonical_instrument_id
     conn = get_connection()
+
+    _ensure_instrument(conn, canonical_instrument_id)
 
     with conn.cursor() as cur:
         cur.execute(
@@ -177,7 +200,7 @@ def cmd_aggregate_daily(args: argparse.Namespace) -> None:
                  volume, vwap, trade_count, market_cap, source, ingested_at,
                  tick_1d)
             SELECT
-                instrument_id,
+                %s,
                 '1d',
                 DATE_TRUNC('day', datetime)::timestamptz                     AS ts,
                 (ARRAY_AGG(open  ORDER BY datetime ASC))[1]                  AS open,
@@ -193,7 +216,7 @@ def cmd_aggregate_daily(args: argparse.Namespace) -> None:
                 EXTRACT(EPOCH FROM DATE_TRUNC('day', datetime))::BIGINT / 86400
             FROM stg_cryptocompare_1h
             WHERE instrument_id = %s
-            GROUP BY instrument_id, DATE_TRUNC('day', datetime)
+            GROUP BY DATE_TRUNC('day', datetime)
             ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
                 open        = excluded.open,
                 high        = excluded.high,
@@ -204,12 +227,12 @@ def cmd_aggregate_daily(args: argparse.Namespace) -> None:
                 ingested_at = excluded.ingested_at,
                 tick_1d     = excluded.tick_1d
             """,
-            (instrument_id,),
+            (canonical_instrument_id, staged_instrument_id),
         )
         row_count = cur.rowcount
 
-    _upsert_data_available(conn, instrument_id, has_1d=True)
-    print(f"Upserted {row_count} daily rows for {instrument_id}")
+    _upsert_data_available(conn, canonical_instrument_id, has_1d=True)
+    print(f"Upserted {row_count} daily rows for {canonical_instrument_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +266,12 @@ def main() -> None:
     p_migrate.add_argument(
         "--instrument-id",
         default=_DEFAULT_INSTRUMENT_ID,
-        help=f"Instrument ID to migrate (default: {_DEFAULT_INSTRUMENT_ID})",
+        help=f"Staged instrument ID in stg_cryptocompare_1h (default: {_DEFAULT_INSTRUMENT_ID})",
+    )
+    p_migrate.add_argument(
+        "--canonical-instrument-id",
+        required=True,
+        help="Canonical instrument ID to use in ohlcv (e.g. 'bitcoin' from CoinMarketCap)",
     )
     p_migrate.set_defaults(func=cmd_migrate)
 
@@ -252,7 +280,12 @@ def main() -> None:
     p_agg.add_argument(
         "--instrument-id",
         default=_DEFAULT_INSTRUMENT_ID,
-        help=f"Instrument ID to aggregate (default: {_DEFAULT_INSTRUMENT_ID})",
+        help=f"Staged instrument ID in stg_cryptocompare_1h (default: {_DEFAULT_INSTRUMENT_ID})",
+    )
+    p_agg.add_argument(
+        "--canonical-instrument-id",
+        required=True,
+        help="Canonical instrument ID to use in ohlcv (e.g. 'bitcoin' from CoinMarketCap)",
     )
     p_agg.set_defaults(func=cmd_aggregate_daily)
 
