@@ -92,6 +92,9 @@ HTTP_PORT=9000 GRPC_PORT=9001 uv run serve
 | `uv run ingest` | Run all configured connectors once |
 | `uv run scheduler` | Start the background ingestion scheduler |
 | `uv run market-data import-cmc-static [DIR]` | Import CoinMarketCap TSV snapshots |
+| `uv run import-cryptocompare stage` | Load CryptoCompare flat file into staging table (`stg_cryptocompare_1h`) |
+| `uv run import-cryptocompare migrate` | Upsert staged 1h rows into the `ohlcv` hypertable |
+| `uv run import-cryptocompare aggregate-daily` | Derive and upsert 1d candles from staged 1h data |
 | `uv run compute-indicators` | Bulk-compute trading strategy indicators and store results |
 
 ---

@@ -13,17 +13,20 @@ flowchart TD
         HL[Hyperliquid\nconnector]
         EODHD[EODHD\nconnector]
         CMC_API[CoinMarketCap\nAPI snapshots]
+        CC_FILE[CryptoCompare\nflat files]
     end
 
     subgraph Ingestion["Ingestion Layer"]
         SCHED[Scheduler\nauto-ingest]
         IMP_OHLCV[import-ohlcv\nCLI]
         IMP_CMC[market-data import-cmc-static\nCLI]
+        IMP_CC[import-cryptocompare\nCLI]
         BACKFILL[backfill\nCLI]
     end
 
     subgraph DB["PostgreSQL + TimescaleDB"]
         OHLCV[(ohlcv\nhypertable)]
+        STG_CC[(stg_cryptocompare_1h\nstaging table)]
         CMC_TABLES[(CMC staging\ntables)]
         INSTRUMENTS[(instruments\ninstrument_crypto)]
         STRATEGIES[(trading_strategies)]
@@ -47,12 +50,15 @@ flowchart TD
     EODHD --> SCHED
     EODHD --> IMP_OHLCV
     CMC_API --> IMP_CMC
+    CC_FILE --> IMP_CC
 
     SCHED --> OHLCV
     IMP_OHLCV --> OHLCV
     BACKFILL --> OHLCV
     IMP_CMC --> CMC_TABLES
     IMP_CMC --> INSTRUMENTS
+    IMP_CC --> STG_CC
+    IMP_CC --> OHLCV
 
     OHLCV --> AGG_W
     OHLCV --> AGG_M
@@ -377,3 +383,36 @@ erDiagram
     cmc_listing_snapshots }o--|| cmc_map : "identified by"
     cmc_listing_snapshots }o--o| cmc_import_log : "tracked by"
 ```
+
+---
+
+## 10. CryptoCompare Flat-File Import
+
+Imports historical OHLCV data from a CryptoCompare CSV flat file into the staging table,
+then promotes it to the `ohlcv` hypertable at 1h and 1d resolutions.
+
+Three sub-commands are run in order:
+
+```mermaid
+flowchart TD
+    FILE["Flat file\n/appdata/cryptocompare/1-hour/*.txt\nCSV: UNIX_TIMESTAMP, DATETIME,\nOPEN, HIGH, CLOSE, LOW,\nVOLUME_USD, VOLUME_BTC"]
+
+    FILE --> STAGE["import-cryptocompare stage\n--instrument-id BTC-USD\n--file <path>"]
+
+    STAGE --> TRUNC["DELETE FROM stg_cryptocompare_1h\nWHERE instrument_id = ?"]
+    TRUNC --> ENSURE["_ensure_instrument()\nINSERT INTO instruments\nON CONFLICT DO NOTHING"]
+    ENSURE --> BULK["executemany()\nbulk insert ~140k rows\nin batches of 5 000"]
+    BULK --> STG[(stg_cryptocompare_1h\nPK: instrument_id, unix_timestamp)]
+
+    STG --> MIGRATE["import-cryptocompare migrate\n--instrument-id BTC-USD"]
+    MIGRATE --> UPSERT1["INSERT INTO ohlcv (interval='1h')\nSELECT … FROM stg_cryptocompare_1h\nON CONFLICT DO UPDATE"]
+    UPSERT1 --> OHLCV[(ohlcv\nhypertable)]
+    UPSERT1 --> AVAIL1["ohlcv_data_available\nhas_1h = TRUE\ndata_source_id = 4"]
+
+    OHLCV --> AGG["import-cryptocompare aggregate-daily\n--instrument-id BTC-USD"]
+    AGG --> SQL["INSERT INTO ohlcv (interval='1d')\nSELECT DATE_TRUNC('day', datetime),\nfirst(open), MAX(high), MIN(low),\nlast(close), SUM(volume_usd)\nGROUP BY day\nON CONFLICT DO UPDATE"]
+    SQL --> OHLCV
+    SQL --> AVAIL2["ohlcv_data_available\nhas_1d = TRUE\ndata_source_id = 4"]
+```
+
+All three commands are idempotent (truncate-per-instrument for staging; `ON CONFLICT DO UPDATE` for `ohlcv`).

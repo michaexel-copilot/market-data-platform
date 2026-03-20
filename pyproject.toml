@@ -29,6 +29,7 @@ import-ohlcv                 = "market_data.cli.import_ohlcv:main"
 import-hl-pairs              = "market_data.cli.import_hl_pairs:main"
 import-source-intersection   = "market_data.cli.import_source_intersection:main"
 migrate-from-duckdb = "market_data.cli.migrate_from_duckdb:main"
+import-cryptocompare         = "market_data.scripts.import_cryptocompare:main"
 
 [build-system]
 requires = ["hatchling"]
