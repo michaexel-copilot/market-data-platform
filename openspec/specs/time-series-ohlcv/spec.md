@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS ohlcv (
     market_cap    DOUBLE PRECISION,
     source        TEXT            NOT NULL,
     ingested_at   TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    tick_1h       BIGINT,
+    CONSTRAINT ohlcv_tick_1h_not_null CHECK (interval != '1h' OR tick_1h IS NOT NULL),
     PRIMARY KEY (instrument_id, interval, ts)
 );
 ```
@@ -39,6 +41,14 @@ CREATE TABLE IF NOT EXISTS ohlcv (
 #### Scenario: Time-range query
 - **WHEN** `SELECT * FROM ohlcv WHERE instrument_id = %s AND interval = %s AND ts >= %s AND ts <= %s ORDER BY ts ASC` is executed
 - **THEN** PostgreSQL uses hypertable chunk exclusion to scan only relevant monthly partitions
+
+#### Scenario: 1h row missing tick_1h is rejected
+- **WHEN** a row with `interval = '1h'` is inserted with `tick_1h = NULL`
+- **THEN** the database rejects the row with a constraint violation
+
+#### Scenario: Non-1h row with null tick_1h is accepted
+- **WHEN** a row with `interval = '1m'`, `'5m'`, or `'1d'` is inserted with `tick_1h = NULL`
+- **THEN** the row is accepted and stored
 
 ---
 
@@ -126,3 +136,33 @@ Response schema:
 #### Scenario: Unknown symbol returns 404
 - **WHEN** `GET /v1/instruments/nonexistent/ohlcv-availability` is called
 - **THEN** the API returns HTTP 404
+
+---
+
+### Requirement: tick_1h population on ingestion
+The ingestion writer SHALL compute and populate `tick_1h` for every candle with `interval = '1h'`. `tick_1h` SHALL be defined as `floor(unix_epoch_seconds(ts) / 3600)`, i.e. the number of complete 1-hour intervals elapsed since 1970-01-01T00:00:00Z. For all other intervals, `tick_1h` SHALL be omitted (written as `NULL`).
+
+#### Scenario: Writer computes tick_1h for 1h candle
+- **WHEN** the ingestion writer processes an `OHLCVRecord` with `interval = '1h'` and `ts = 2026-01-01T06:00:00Z`
+- **THEN** the inserted row has `tick_1h = 491334` (i.e. `1735714800 / 3600`)
+
+#### Scenario: Writer omits tick_1h for non-1h candle
+- **WHEN** the ingestion writer processes an `OHLCVRecord` with `interval = '1m'`
+- **THEN** the inserted row has `tick_1h = NULL`
+
+#### Scenario: Upsert preserves tick_1h
+- **WHEN** a 1h candle is upserted for an already-existing row
+- **THEN** `tick_1h` is updated to the value from the incoming record (not kept from the old row)
+
+---
+
+### Requirement: tick_1h backfill migration
+The migration SHALL backfill `tick_1h` for all pre-existing rows in the `ohlcv` table where `interval = '1h'`. After the migration completes, no `interval = '1h'` row SHALL have `tick_1h = NULL`.
+
+#### Scenario: Backfill sets correct value
+- **WHEN** the migration runs on an `ohlcv` table containing 1h rows
+- **THEN** each backfilled row has `tick_1h = EXTRACT(EPOCH FROM ts)::BIGINT / 3600`
+
+#### Scenario: Backfill leaves non-1h rows unchanged
+- **WHEN** the migration runs
+- **THEN** rows with `interval != '1h'` retain `tick_1h = NULL`

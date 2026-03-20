@@ -38,6 +38,8 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             r.market_cap,
             r.source,
             now,
+            int(r.ts.timestamp()) // 3600 if str(r.interval) == "1h" else None,
+            int(r.ts.timestamp()) // 86400 if str(r.interval) == "1d" else None,
         )
         for r in records
     ]
@@ -46,8 +48,9 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             """
             INSERT INTO ohlcv
                 (instrument_id, interval, ts, open, high, low, close,
-                 volume, vwap, trade_count, market_cap, source, ingested_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 volume, vwap, trade_count, market_cap, source, ingested_at,
+                 tick_1h, tick_1d)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
                 open       = excluded.open,
                 high       = excluded.high,
@@ -58,7 +61,9 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
                 trade_count = COALESCE(excluded.trade_count, ohlcv.trade_count),
                 market_cap  = COALESCE(excluded.market_cap, ohlcv.market_cap),
                 source      = excluded.source,
-                ingested_at = excluded.ingested_at
+                ingested_at = excluded.ingested_at,
+                tick_1h     = excluded.tick_1h,
+                tick_1d     = excluded.tick_1d
             """,
             rows,
         )

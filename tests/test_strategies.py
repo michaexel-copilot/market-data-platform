@@ -161,8 +161,8 @@ def db_with_ohlcv(db_conn):
     rng = random.Random(42)
     price = 40000.0
     insert_sql = (
-        "INSERT INTO ohlcv (instrument_id, interval, ts, open, high, low, close, volume, source)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        "INSERT INTO ohlcv (instrument_id, interval, ts, open, high, low, close, volume, source, tick_1h)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     )
     for i in range(200):
         day = datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
@@ -170,8 +170,10 @@ def db_with_ohlcv(db_conn):
         h, l = price * 1.01, price * 0.99
         ts_open  = datetime.datetime.combine(day, datetime.time(0, 0, 0))
         ts_close = datetime.datetime.combine(day, datetime.time(23, 0, 0))
-        db_conn.execute(insert_sql, ["uuid-btc-001", "1h", str(ts_open), price * 0.995, h, l, price, 500, "test"])
-        db_conn.execute(insert_sql, ["uuid-btc-001", "1h", str(ts_close), price * 0.995, h, l, price * 1.005, 500, "test"])
+        tick_open  = int(ts_open.replace(tzinfo=datetime.timezone.utc).timestamp()) // 3600
+        tick_close = int(ts_close.replace(tzinfo=datetime.timezone.utc).timestamp()) // 3600
+        db_conn.execute(insert_sql, ["uuid-btc-001", "1h", str(ts_open), price * 0.995, h, l, price, 500, "test", tick_open])
+        db_conn.execute(insert_sql, ["uuid-btc-001", "1h", str(ts_close), price * 0.995, h, l, price * 1.005, 500, "test", tick_close])
     yield db_conn
 
 

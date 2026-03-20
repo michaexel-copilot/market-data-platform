@@ -19,21 +19,23 @@ def patched_db(db_conn):
     )
     db_conn.execute(
         "INSERT INTO ohlcv"
-        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        ("uuid-btc-001", "1d", "2023-11-14 00:00:00+00", 35000, 36000, 34000, 35500, 1000, "test"),
+        " (instrument_id, interval, ts, open, high, low, close, volume, source, tick_1d)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "1d", "2023-11-14 00:00:00+00", 35000, 36000, 34000, 35500, 1000, "test", 19675),
+    )
+    _ts1 = datetime.datetime(2023, 11, 14, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    _ts2 = datetime.datetime(2023, 11, 14, 23, 0, 0, tzinfo=datetime.timezone.utc)
+    db_conn.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source, tick_1h)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "1h", _ts1, 35000, 35500, 34900, 35200, 500, "test", int(_ts1.timestamp()) // 3600),
     )
     db_conn.execute(
         "INSERT INTO ohlcv"
-        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        ("uuid-btc-001", "1h", "2023-11-14 00:00:00+00", 35000, 35500, 34900, 35200, 500, "test"),
-    )
-    db_conn.execute(
-        "INSERT INTO ohlcv"
-        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        ("uuid-btc-001", "1h", "2023-11-14 23:00:00+00", 35200, 35800, 35100, 35600, 500, "test"),
+        " (instrument_id, interval, ts, open, high, low, close, volume, source, tick_1h)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ("uuid-btc-001", "1h", _ts2, 35200, 35800, 35100, 35600, 500, "test", int(_ts2.timestamp()) // 3600),
     )
     yield db_conn
 
@@ -130,11 +132,12 @@ async def test_post_compute_then_get(patched_db, app):
         h, l = price * 1.01, price * 0.99
         for hour in (0, 23):
             ts = datetime.datetime.combine(day, datetime.time(hour, 0, 0))
+            tick_1h = int(ts.replace(tzinfo=datetime.timezone.utc).timestamp()) // 3600
             patched_db.execute(
                 "INSERT INTO ohlcv"
-                " (instrument_id, interval, ts, open, high, low, close, volume, source)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                ["uuid-btc-001", "1h", str(ts), price * 0.995, h, l, price, 500, "test"],
+                " (instrument_id, interval, ts, open, high, low, close, volume, source, tick_1h)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                ["uuid-btc-001", "1h", str(ts), price * 0.995, h, l, price, 500, "test", tick_1h],
             )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

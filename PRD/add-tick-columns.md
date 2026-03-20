@@ -9,6 +9,8 @@ add to the table ohlcv columns for ticks for each interval. Start with the unix 
 ## Tasks
 |  Task |  Description |
 |---|---|
-|  Task 1 | add Tick column for 1h interval. this field must not be null. Calculate the tick for the existing rows |
+| [x] Task 1 | add Tick column for 1h interval based on the timestamp. type of the field is Integer. Round if necessary. this field must not be null. Calculate the tick for the existing rows |
+|---|---|
+| [x] Task 2 | add Tick column for 1d interval based on the timestamp. type of the field is Integer. Round if necessary. this field must not be null. Calculate the tick for the existing rows |
 
 

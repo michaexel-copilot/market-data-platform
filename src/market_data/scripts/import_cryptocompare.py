@@ -127,7 +127,8 @@ def cmd_migrate(args: argparse.Namespace) -> None:
             """
             INSERT INTO ohlcv
                 (instrument_id, interval, ts, open, high, low, close,
-                 volume, vwap, trade_count, market_cap, source, ingested_at)
+                 volume, vwap, trade_count, market_cap, source, ingested_at,
+                 tick_1h)
             SELECT
                 instrument_id,
                 '1h',
@@ -141,7 +142,8 @@ def cmd_migrate(args: argparse.Namespace) -> None:
                 NULL,
                 NULL,
                 'cryptocompare',
-                NOW()
+                NOW(),
+                EXTRACT(EPOCH FROM datetime)::BIGINT / 3600
             FROM stg_cryptocompare_1h
             WHERE instrument_id = %s
             ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
@@ -151,7 +153,8 @@ def cmd_migrate(args: argparse.Namespace) -> None:
                 close       = excluded.close,
                 volume      = COALESCE(excluded.volume, ohlcv.volume),
                 source      = excluded.source,
-                ingested_at = excluded.ingested_at
+                ingested_at = excluded.ingested_at,
+                tick_1h     = excluded.tick_1h
             """,
             (instrument_id,),
         )
@@ -171,7 +174,8 @@ def cmd_aggregate_daily(args: argparse.Namespace) -> None:
             """
             INSERT INTO ohlcv
                 (instrument_id, interval, ts, open, high, low, close,
-                 volume, vwap, trade_count, market_cap, source, ingested_at)
+                 volume, vwap, trade_count, market_cap, source, ingested_at,
+                 tick_1d)
             SELECT
                 instrument_id,
                 '1d',
@@ -185,7 +189,8 @@ def cmd_aggregate_daily(args: argparse.Namespace) -> None:
                 NULL,
                 NULL,
                 'cryptocompare',
-                NOW()
+                NOW(),
+                EXTRACT(EPOCH FROM DATE_TRUNC('day', datetime))::BIGINT / 86400
             FROM stg_cryptocompare_1h
             WHERE instrument_id = %s
             GROUP BY instrument_id, DATE_TRUNC('day', datetime)
@@ -196,7 +201,8 @@ def cmd_aggregate_daily(args: argparse.Namespace) -> None:
                 close       = excluded.close,
                 volume      = COALESCE(excluded.volume, ohlcv.volume),
                 source      = excluded.source,
-                ingested_at = excluded.ingested_at
+                ingested_at = excluded.ingested_at,
+                tick_1d     = excluded.tick_1d
             """,
             (instrument_id,),
         )
