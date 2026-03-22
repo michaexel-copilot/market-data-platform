@@ -1,6 +1,7 @@
 """EODHD connector — equities + crypto OHLCV, all intervals, with fundamentals."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -16,6 +17,7 @@ from market_data.models.ohlcv import OHLCVRecord
 
 _BASE_URL = "https://eodhd.com/api"
 _RATE = float(os.getenv("EODHD_RATE", "5"))
+logger = logging.getLogger(__name__)
 
 _INTERVAL_MAP: dict[str, str] = {
     "1m": "1m",
@@ -45,6 +47,46 @@ class EODHDConnector:
         self._api_key = os.getenv("EODHD_API_KEY", "demo")
         self._rl = RateLimiter(rate=_RATE, burst=_RATE)
 
+    def _resolve_eodhd_symbol(self, instrument_id: str) -> str | None:
+        """Translate a canonical instrument_id to an EODHD API symbol.
+
+        If instrument_id already contains a dot (e.g. ``BTC-USD.CC``), returns
+        it as-is.  Otherwise looks up ``ticker`` + ``exchange`` / ``asset_class``
+        / ``quote_currency`` from the ``instruments`` table and constructs the
+        EODHD symbol:
+
+        - Crypto: ``{TICKER}-{QUOTE}.CC``  (e.g. ``BTC-USD.CC``)
+        - Equity/ETF: ``{TICKER}.{EXCHANGE or "US"}``
+        - Index: ``{TICKER}.INDX``
+
+        Returns ``None`` when no mapping can be determined (connector will skip
+        the instrument without counting it as an error).
+        """
+        if "." in instrument_id:
+            return instrument_id
+        from market_data.db.connection import get_connection
+        row = get_connection().execute(
+            "SELECT ticker, exchange, asset_class, quote_currency"
+            " FROM instruments WHERE instrument_id = %s LIMIT 1",
+            [instrument_id],
+        ).fetchone()
+        if row is None:
+            return None
+        ticker, exchange, asset_class, quote_currency = row
+        asset_class_lower = str(asset_class).lower()
+        if asset_class_lower == "crypto":
+            quote = quote_currency or "USD"
+            return f"{ticker}-{quote}.CC"
+        if exchange:
+            return f"{ticker}.{exchange}"
+        _class_to_exchange: dict[str, str] = {
+            "equity": "US",
+            "etf": "US",
+            "index": "INDX",
+        }
+        mapped = _class_to_exchange.get(asset_class_lower)
+        return f"{ticker}.{mapped}" if mapped else None
+
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         await self._rl.acquire()
         p = {"api_token": self._api_key, "fmt": "json", **(params or {})}
@@ -61,26 +103,27 @@ class EODHDConnector:
         since: datetime,
         until: datetime,
     ) -> list[OHLCVRecord]:
+        eodhd_symbol = self._resolve_eodhd_symbol(instrument_id)
+        if eodhd_symbol is None:
+            logger.debug("eodhd: no symbol mapping for %s — skipping", instrument_id)
+            return []
         period = _INTERVAL_MAP.get(str(interval), "d")
         from_str = to_utc(since).strftime("%Y-%m-%d")
         to_str = to_utc(until).strftime("%Y-%m-%d")
-        try:
-            if period == "d":
-                data = await self._get(
-                    f"/eod/{instrument_id}",
-                    params={"from": from_str, "to": to_str, "period": "d"},
-                )
-            else:
-                data = await self._get(
-                    f"/intraday/{instrument_id}",
-                    params={
-                        "from": int(to_utc(since).timestamp()),
-                        "to": int(to_utc(until).timestamp()),
-                        "interval": period,
-                    },
-                )
-        except httpx.HTTPStatusError:
-            return []
+        if period == "d":
+            data = await self._get(
+                f"/eod/{eodhd_symbol}",
+                params={"from": from_str, "to": to_str, "period": "d"},
+            )
+        else:
+            data = await self._get(
+                f"/intraday/{eodhd_symbol}",
+                params={
+                    "from": int(to_utc(since).timestamp()),
+                    "to": int(to_utc(until).timestamp()),
+                    "interval": period,
+                },
+            )
         if not isinstance(data, list):
             return []
         records: list[OHLCVRecord] = []

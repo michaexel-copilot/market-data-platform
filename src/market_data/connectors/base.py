@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -34,7 +36,13 @@ def with_backoff(
     base_delay: float = 5.0,
     max_delay: float = 120.0,
 ) -> Callable[[F], F]:
-    """Decorator that retries an async function with exponential backoff on any Exception."""
+    """Decorator that retries an async function with exponential backoff.
+
+    4xx HTTP errors are never retried — they indicate permanent client-side
+    failures (wrong symbol, not subscribed, etc.) and should propagate
+    immediately so callers can handle them correctly (record 404, disable on
+    403, etc.).
+    """
 
     def decorator(func: F) -> F:
         @wraps(func)
@@ -43,6 +51,21 @@ def with_backoff(
             for attempt in range(max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
+                except httpx.HTTPStatusError as exc:
+                    if 400 <= exc.response.status_code < 500:
+                        raise  # never retry 4xx — permanent failures
+                    if attempt == max_retries:
+                        raise
+                    logger.warning(
+                        "%s failed (attempt %d/%d): %s — retrying in %.1fs",
+                        func.__qualname__,
+                        attempt + 1,
+                        max_retries,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, max_delay)
                 except Exception as exc:
                     if attempt == max_retries:
                         raise

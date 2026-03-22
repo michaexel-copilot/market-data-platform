@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -53,6 +54,16 @@ class ImportCmcStaticRequest(BaseModel):
 
 class ImportHLPairsRequest(BaseModel):
     network: str = "mainnet"
+
+
+class RunIngestRequest(BaseModel):
+    interval: str
+    connector: str | None = None
+    symbol: str | None = None
+    asset_class: str | None = None
+    since: datetime | None = None
+    until: datetime | None = None
+    fill_gaps: bool = True
 
 
 @router.post("/import-ohlcv")
@@ -404,3 +415,77 @@ async def run_import_hl_pairs(req: ImportHLPairsRequest) -> dict:
     unmatched = len(pairs) - len(reconciled)
     upserted, deactivated = upsert_hl_pairs(conn, req.network, reconciled)
     return {"upserted": upserted, "unmatched": unmatched, "deactivated": deactivated}
+
+
+@router.post("/run-ingest")
+async def run_ingest(req: RunIngestRequest) -> dict:
+    """Manually trigger an ingestion job for a specific interval.
+
+    Optional filters: ``connector`` (data source name), ``symbol`` (single ticker),
+    and ``since``/``until`` (UTC datetime window). If omitted the default lookback
+    heuristic is used and all active instruments are processed.
+
+    Returns ``{written, errors, skipped, interval, connector, symbol}``.
+    """
+    if req.interval not in _NATIVE_INTERVALS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Interval {req.interval!r} is not supported. Supported: {sorted(_NATIVE_INTERVALS)}",
+        )
+
+    from market_data.models.enums import AssetClass, Interval
+    from market_data.ingestion.jobs import _run_interval_job
+
+    asset_class_enum: AssetClass | None = None
+    if req.asset_class:
+        try:
+            asset_class_enum = AssetClass(req.asset_class.lower())
+        except ValueError:
+            valid = [e.value for e in AssetClass]
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown asset_class {req.asset_class!r}. Valid values: {valid}",
+            ) from None
+
+    _INTERVAL_MAP: dict[str, Interval] = {
+        "1m": Interval.ONE_MIN,
+        "5m": Interval.FIVE_MIN,
+        "1h": Interval.ONE_HOUR,
+        "1d": Interval.ONE_DAY,
+    }
+    interval_enum = _INTERVAL_MAP[req.interval]
+
+    instrument_id: str | None = None
+    if req.symbol:
+        from market_data.db.resolver import resolve_symbol
+        from market_data.models.api import AmbiguousSymbolError, SymbolNotFoundError
+        try:
+            instrument_id = resolve_symbol(req.symbol, asset_class=asset_class_enum)
+        except AmbiguousSymbolError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{exc}. Pass asset_class to disambiguate.",
+            ) from exc
+        except SymbolNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        stats = await _run_interval_job(
+            interval_enum,
+            connector_name=req.connector,
+            instrument_id=instrument_id,
+            asset_class=asset_class_enum,
+            since=req.since,
+            until=req.until,
+            fill_gaps=req.fill_gaps,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        **stats,
+        "interval": req.interval,
+        "connector": req.connector,
+        "symbol": req.symbol,
+        "asset_class": req.asset_class,
+    }
