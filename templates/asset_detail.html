@@ -139,311 +139,104 @@
     </h2>
     <div id="collapse-strategy-controls" class="accordion-collapse collapse show" aria-labelledby="heading-strategy-controls">
       <div class="accordion-body">
-  <div style="flex: 1; min-width: 0">
 
-    <!-- SMA spinners + SL fields: side-by-side layout -->
-    <div class="row g-2 mb-2">
-      <!-- Left col: SMA LOW + SL Short -->
+  <!-- ================================================================
+       Backtest Controls
+       ================================================================ -->
+  <form id="backtest-form">
+    <div class="row g-3 mb-3">
+
+      <!-- Indicator 1 -->
       <div class="col-auto">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <label class="form-label mb-0 text-muted" style="font-size:1rem">SMA LOW <span class="badge bg-danger" style="font-size:0.7rem">Short &#9660;</span></label>
-          <input
-            id="sma-input"
-            type="number"
-            class="form-control"
-            style="width:90px; font-size:1rem"
-            min="1" max="500"
-            value="{{ sma_period }}"
-            hx-get="/asset/{{ symbol }}"
-            hx-target="#detail-pane"
-            hx-swap="innerHTML"
-            hx-include="#pos-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
-            name="sma"
-            hx-trigger="change"
-          />
+        <label class="form-label mb-1 text-muted" style="font-size:0.85rem">Indicator 1</label>
+        <select id="ind1-type" name="ind1_type" class="form-select form-select-sm" style="min-width:200px"
+          onchange="btTogglePeriod('ind1', this.value)">
+          <option value="price" selected>Price</option>
+          <option value="sma">Simple Moving Average (SMA)</option>
+          <option value="ema">EMA</option>
+        </select>
+        <div id="ind1-period-row" class="d-flex align-items-center gap-1 mt-1" style="display:none!important">
+          <input type="number" id="ind1-min" name="ind1_min" class="form-control form-control-sm" style="width:65px" value="1"  min="1" max="500" placeholder="Min">
+          <span class="text-muted">–</span>
+          <input type="number" id="ind1-max" name="ind1_max" class="form-control form-control-sm" style="width:65px" value="200" min="1" max="500" placeholder="Max">
         </div>
-        <script>
-        (function () {
-          const inp = document.getElementById('sma-input');
-          if (!inp) return;
-          inp.addEventListener('keydown', function (e) {
-            let dir = 0;
-            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-            if (dir === 0) return;
-            e.preventDefault();
-            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
-            const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
-            inp.value = next;
-            inp.dispatchEvent(new Event('change'));
-          });
-        })();
-        </script>
-        <div class="d-flex align-items-center gap-2">
-          <label class="form-label mb-0 text-muted" style="font-size:1rem">SL Short %</label>
-          <input
-            id="sl-short-input"
-            type="number"
-            class="form-control"
-            style="width:90px; font-size:1rem"
-            min="1" max="50"
-            value="{{ sl_short }}"
-            hx-get="/asset/{{ symbol }}"
-            hx-target="#detail-pane"
-            hx-swap="innerHTML"
-            hx-include="#sma-input, #pos-input, #sma-high-input, #sl-long-input, #hl-short-input, #hl-long-input"
-            name="sl_short"
-            hx-trigger="change"
-          />
-        </div>
-        <script>
-        (function () {
-          const inp = document.getElementById('sl-short-input');
-          if (!inp) return;
-          inp.addEventListener('keydown', function (e) {
-            let dir = 0;
-            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-            if (dir === 0) return;
-            e.preventDefault();
-            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
-            const next = Math.min(50, Math.max(1, parseInt(inp.value, 10) + dir * step));
-            inp.value = next;
-            inp.dispatchEvent(new Event('change'));
-          });
-        })();
-        </script>
       </div>
 
-      <!-- Right col: SMA HIGH + SL Long -->
+      <!-- Indicator 2 -->
       <div class="col-auto">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <label class="form-label mb-0 text-muted" style="font-size:1rem">SMA HIGH <span class="badge bg-success" style="font-size:0.7rem">Long &#9650;</span></label>
-          <input
-            id="sma-high-input"
-            type="number"
-            class="form-control"
-            style="width:90px; font-size:1rem"
-            min="1" max="500"
-            value="{{ sma_high }}"
-            hx-get="/asset/{{ symbol }}"
-            hx-target="#detail-pane"
-            hx-swap="innerHTML"
-            hx-include="#pos-input, #sma-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
-            name="sma_high"
-            hx-trigger="change"
-          />
+        <label class="form-label mb-1 text-muted" style="font-size:0.85rem">Indicator 2</label>
+        <select id="ind2-type" name="ind2_type" class="form-select form-select-sm" style="min-width:200px">
+          <option value="sma" selected>Simple Moving Average (SMA)</option>
+          <option value="ema">EMA</option>
+        </select>
+        <div id="ind2-period-row" class="d-flex align-items-center gap-1 mt-1">
+          <input type="number" id="ind2-min" name="ind2_min" class="form-control form-control-sm" style="width:65px" value="1"  min="1" max="500" placeholder="Min">
+          <span class="text-muted">–</span>
+          <input type="number" id="ind2-max" name="ind2_max" class="form-control form-control-sm" style="width:65px" value="200" min="1" max="500" placeholder="Max">
         </div>
-        <script>
-        (function () {
-          const inp = document.getElementById('sma-high-input');
-          if (!inp) return;
-          inp.addEventListener('keydown', function (e) {
-            let dir = 0;
-            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-            if (dir === 0) return;
-            e.preventDefault();
-            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 7 : 1;
-            const next = Math.min(500, Math.max(1, parseInt(inp.value, 10) + dir * step));
-            inp.value = next;
-            inp.dispatchEvent(new Event('change'));
-          });
-        })();
-        </script>
-        <div class="d-flex align-items-center gap-2">
-          <label class="form-label mb-0 text-muted" style="font-size:1rem">SL Long %</label>
-          <input
-            id="sl-long-input"
-            type="number"
-            class="form-control"
-            style="width:90px; font-size:1rem"
-            min="1" max="50"
-            value="{{ sl_long }}"
-            hx-get="/asset/{{ symbol }}"
-            hx-target="#detail-pane"
-            hx-swap="innerHTML"
-            hx-include="#sma-input, #pos-input, #sma-high-input, #sl-short-input, #hl-short-input, #hl-long-input"
-            name="sl_long"
-            hx-trigger="change"
-          />
-        </div>
-        <script>
-        (function () {
-          const inp = document.getElementById('sl-long-input');
-          if (!inp) return;
-          inp.addEventListener('keydown', function (e) {
-            let dir = 0;
-            if (e.code === 'Equal' || e.code === 'NumpadAdd')      dir = +1;
-            if (e.code === 'Minus' || e.code === 'NumpadSubtract') dir = -1;
-            if (dir === 0) return;
-            e.preventDefault();
-            const step = (e.ctrlKey && e.shiftKey) ? 10 : e.shiftKey ? 5 : 1;
-            const next = Math.min(50, Math.max(1, parseInt(inp.value, 10) + dir * step));
-            inp.value = next;
-            inp.dispatchEvent(new Event('change'));
-          });
-        })();
-        </script>
       </div>
-    </div>
 
-    <!-- Position size spinner -->
-    <div class="d-flex align-items-center gap-2 mb-2">
-      <label class="form-label mb-0 text-muted" style="font-size:1rem">Position ($)</label>
-      <input
-        id="pos-input"
-        type="number"
-        class="form-control"
-        style="width:120px; font-size:1rem"
-        min="100" step="100"
-        value="{{ pos_usd }}"
-        name="pos"
-        hx-get="/asset/{{ symbol }}"
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-include="#sma-input, #sma-high-input, #sl-short-input, #sl-long-input, #hl-short-input, #hl-long-input"
-        hx-trigger="change"
-      />
-    </div>
-
-    <!-- Find Best SMA button -->
-    <div class="mb-3">
-      <button
-        id="find-best-sma-btn"
-        class="btn btn-sm btn-outline-primary"
-        hx-get="/asset/{{ symbol }}/best-sma"
-        hx-include="#sl-short-input, #sl-long-input, #pos-input"
-        hx-swap="none"
-        hx-trigger="{{ 'click, load' if load_best_sma_on_render else 'click' }}"
-        hx-indicator="#find-best-sma-btn"
-        hx-on::after-request="
-          try {
-            if (!event.detail.successful) return;
-            const raw = (event.detail.xhr && event.detail.xhr.responseText)
-                        || event.detail.serverResponse || '';
-            if (!raw) return;
-            const data = JSON.parse(raw);
-            if (data.sma && data.sma_high) {
-              const pos     = document.getElementById('pos-input')      ? document.getElementById('pos-input').value      : '{{ pos_usd }}';
-              const slShort = document.getElementById('sl-short-input') ? document.getElementById('sl-short-input').value : '{{ sl_short }}';
-              const slLong  = document.getElementById('sl-long-input')  ? document.getElementById('sl-long-input').value  : '{{ sl_long }}';
-              const url = '/asset/{{ symbol }}?sma=' + data.sma + '&sma_high=' + data.sma_high
-                + '&pos=' + pos + '&sl_short=' + slShort + '&sl_long=' + slLong + '&tab=chart&auto_sma=1';
-              htmx.ajax('GET', url, {target: '#detail-pane', swap: 'innerHTML'});
-            }
-          } catch(err) { console.error('[best-sma]', err); }
-        "
-      >
-        <span class="htmx-indicator spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-        Find Best SMA
-      </button>
-      <span
-        class="badge ms-2 {{ 'bg-success-subtle text-success-emphasis border border-success-subtle' if load_best_sma_on_render else 'bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle' }}"
-        title="Debug: indicates whether this render auto-fetches best SMA on load"
-      >
-        {{ 'init-load: auto best SMA ON' if load_best_sma_on_render else 'manual-update: auto best SMA OFF' }}
-      </span>
-    </div>
-
-    <!-- Hidden inputs -->
-    <input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
-    <input type="hidden" id="hl-long-input" name="hl_long" value="{{ hl_long if hl_long is not none else '' }}">
-
-    <!-- Dual strategy summaries -->
-    {% set s_total = namespace(value=0, count=0) %}
-    {% for t in trades %}
-      {% if not t.is_open and t.pnl is not none %}
-        {% set s_total.value = s_total.value + t.pnl %}
-        {% set s_total.count = s_total.count + 1 %}
-      {% endif %}
-    {% endfor %}
-    {% set l_total = namespace(value=0, count=0) %}
-    {% for t in long_trades %}
-      {% if not t.is_open and t.pnl is not none %}
-        {% set l_total.value = l_total.value + t.pnl %}
-        {% set l_total.count = l_total.count + 1 %}
-      {% endif %}
-    {% endfor %}
-    {% set s_avg = (s_total.value / s_total.count) if s_total.count > 0 else 0 %}
-    {% set l_avg = (l_total.value / l_total.count) if l_total.count > 0 else 0 %}
-
-    <!-- In-sample summary (full history / all candles) -->
-    {% if oos_train_from %}
-    <div class="text-muted mb-1" style="font-size:0.78rem">
-      <span class="badge bg-secondary me-1">In-Sample (Optimisation)</span>
-      {{ oos_train_from }} &rarr; {{ oos_train_to }}
-    </div>
-    {% endif %}
-    <div class="d-flex gap-3 mb-2 flex-wrap">
-      <div class="border rounded px-3 py-1" style="background:#fff5f5; font-size:0.85rem">
-        <span class="fw-semibold text-danger">&#9660; Short</span>
-        &nbsp;SMA-{{ sma_period }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_short }}%
-        &nbsp;&nbsp;
-        <span class="text-muted">{{ s_total.count }} trade{{ "s" if s_total.count != 1 }}</span>
-        &nbsp;
-        <span class="fw-semibold {% if s_total.value >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(s_total.value) }}</span>
-        &nbsp;
-        <span class="{% if s_avg >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(s_avg) }}</span>
+      <!-- Exposure -->
+      <div class="col-auto">
+        <label class="form-label mb-1 text-muted" style="font-size:0.85rem">Exposure</label>
+        <select id="exposure" name="exposure" class="form-select form-select-sm" style="min-width:160px">
+          <option value="long_cash"  selected>Long+Cash</option>
+          <option value="short_cash">Short+Cash</option>
+          <option value="long_short">Long+Short</option>
+        </select>
       </div>
-      <div class="border rounded px-3 py-1" style="background:#f5fff5; font-size:0.85rem">
-        <span class="fw-semibold text-success">&#9650; Long</span>
-        &nbsp;SMA-{{ sma_high }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_long }}%
-        &nbsp;&nbsp;
-        <span class="text-muted">{{ l_total.count }} trade{{ "s" if l_total.count != 1 }}</span>
-        &nbsp;
-        <span class="fw-semibold {% if l_total.value >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(l_total.value) }}</span>
-        &nbsp;
-        <span class="{% if l_avg >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(l_avg) }}</span>
-      </div>
-    </div>
 
-    <!-- Out-of-sample (validation) summary — only shown after "Find Best SMA" -->
-    {% if oos_short_summary %}
-    <hr class="my-2">
-    <div class="text-muted mb-1" style="font-size:0.78rem">
-      <span class="badge bg-info text-dark me-1">Out-of-Sample (Validation)</span>
-      <span
-        class="badge me-1 {{ 'bg-success-subtle text-success-emphasis border border-success-subtle' if oos_cache_state == 'hit' else ('bg-warning-subtle text-warning-emphasis border border-warning-subtle' if oos_cache_state == 'miss' else ('bg-danger-subtle text-danger-emphasis border border-danger-subtle' if oos_cache_state == 'error' else 'bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle')) }}"
-        title="Debug: OOS cache status for current SMA/SL/position parameters"
-      >
-        OOS cache: {{ oos_cache_state|upper }}
-      </span>
-      {{ oos_val_from }} &rarr; {{ oos_val_to }}
-    </div>
-    <div class="d-flex gap-3 mb-2 flex-wrap">
-      <div class="border rounded px-3 py-1" style="background:#fff0e0; font-size:0.85rem">
-        <span class="fw-semibold text-danger">&#9660; Short</span>
-        &nbsp;SMA-{{ sma_period }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_short }}%
-        &nbsp;&nbsp;
-        <span class="text-muted">{{ oos_short_summary.count }} trade{{ "s" if oos_short_summary.count != 1 }}</span>
-        &nbsp;
-        <span class="fw-semibold {% if oos_short_summary.total_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(oos_short_summary.total_pnl) }}</span>
-        &nbsp;
-        {% if oos_short_summary.avg_pnl is not none %}
-        <span class="{% if oos_short_summary.avg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(oos_short_summary.avg_pnl) }}</span>
-        {% else %}
-        <span class="text-muted">Avg&nbsp;&mdash;</span>
-        {% endif %}
+      <!-- Date range -->
+      <div class="col-auto">
+        <label class="form-label mb-1 text-muted" style="font-size:0.85rem">Train start</label>
+        <input type="date" id="train-start" name="train_start" class="form-control form-control-sm" value="2020-01-01">
       </div>
-      <div class="border rounded px-3 py-1" style="background:#e0f0ff; font-size:0.85rem">
-        <span class="fw-semibold text-success">&#9650; Long</span>
-        &nbsp;SMA-{{ sma_high }}&nbsp;&mdash;&nbsp;SL&nbsp;{{ sl_long }}%
-        &nbsp;&nbsp;
-        <span class="text-muted">{{ oos_long_summary.count }} trade{{ "s" if oos_long_summary.count != 1 }}</span>
-        &nbsp;
-        <span class="fw-semibold {% if oos_long_summary.total_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.2f" | format(oos_long_summary.total_pnl) }}</span>
-        &nbsp;
-        {% if oos_long_summary.avg_pnl is not none %}
-        <span class="{% if oos_long_summary.avg_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">Avg&nbsp;{{ "%+.2f" | format(oos_long_summary.avg_pnl) }}</span>
-        {% else %}
-        <span class="text-muted">Avg&nbsp;&mdash;</span>
-        {% endif %}
+      <div class="col-auto">
+        <label class="form-label mb-1 text-muted" style="font-size:0.85rem">Train end</label>
+        <input type="date" id="train-end" name="train_end" class="form-control form-control-sm" value="2024-12-31">
       </div>
-    </div>
-    {% endif %}
+      <div class="col-auto">
+        <label class="form-label mb-1 text-muted" style="font-size:0.85rem">Validation start</label>
+        <input type="date" id="val-start" name="val_start" class="form-control form-control-sm" value="2025-01-01">
+      </div>
 
-  </div>
+    </div><!-- /row -->
+
+    <!-- Run Backtest button -->
+    <button
+      id="run-backtest-btn"
+      type="button"
+      class="btn btn-sm btn-primary"
+      hx-post="/asset/{{ symbol }}/backtest"
+      hx-include="#backtest-form"
+      hx-target="#backtest-results"
+      hx-swap="innerHTML"
+      hx-indicator="#run-backtest-btn"
+    >
+      <span class="htmx-indicator spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+      Run Backtest
+    </button>
+
+  </form>
+
+  <!-- Results placeholder -->
+  <div id="backtest-results" class="mt-3"></div>
+
+  <!-- Hidden inputs kept for backward-compat with trade-table hx-include refs -->
+  <input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
+  <input type="hidden" id="hl-long-input"  name="hl_long"   value="{{ hl_long if hl_long is not none else '' }}">
+
+  <script>
+  (function () {
+    function btTogglePeriod(prefix, val) {
+      const row = document.getElementById(prefix + '-period-row');
+      if (!row) return;
+      row.style.display = (val === 'price') ? 'none' : 'flex';
+    }
+    window.btTogglePeriod = btTogglePeriod;
+  })();
+  </script>
+
       </div>
     </div>
   </div>

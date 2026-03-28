@@ -14,6 +14,9 @@ dependencies = [
     "hl-client",
     "python-dotenv>=1.0",
     "httpx>=0.28.1",
+    "pandas>=2.0",
+    "backtesting>=0.3.3",
+    "python-multipart>=0.0.22",
 ]
 
 [project.scripts]

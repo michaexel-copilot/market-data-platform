@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,6 +26,7 @@ from draw_chart import backtest_short_strategy, backtest_long_strategy, draw_cha
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # noqa: E402
 from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
+from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
@@ -370,6 +371,28 @@ async def lists_ignore_remove(symbol: str) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Backtest configuration endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/indicators")
+async def indicators_list() -> JSONResponse:
+    return JSONResponse([
+        {"id": "price", "label": "Price"},
+        {"id": "sma",   "label": "Simple Moving Average (SMA)"},
+        {"id": "ema",   "label": "EMA"},
+    ])
+
+
+@app.get("/exposures")
+async def exposures_list() -> JSONResponse:
+    return JSONResponse([
+        {"id": "long_cash",  "label": "Long+Cash"},
+        {"id": "short_cash", "label": "Short+Cash"},
+        {"id": "long_short", "label": "Long+Short"},
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -405,7 +428,6 @@ async def asset_detail(
     sl_long: int = 10,
     hl_long: str | None = None,
     strategy_tab: str = "short",
-    auto_sma: int = 0,
 ) -> HTMLResponse:
     hl_long_int: int | None = int(hl_long) if hl_long not in (None, "") else None
     sym_upper = symbol.upper()
@@ -537,13 +559,6 @@ async def asset_detail(
 
     # Compute out-of-sample validation for the currently selected parameters.
     oos_data, oos_cache_state = _get_or_compute_oos(sym_upper, sma, sma_high, sl_short, sl_long, pos)
-    # Only auto-fetch best SMA on a true initial load where SMA params were not
-    # explicitly provided by the caller.
-    load_best_sma_on_render = (
-        not auto_sma
-        and "sma" not in request.query_params
-        and "sma_high" not in request.query_params
-    )
 
     return TEMPLATES.TemplateResponse(
         "asset_detail.html",
@@ -572,16 +587,15 @@ async def asset_detail(
             "chart_resolution":  resolution,
             "eur_usd_rate":      fetch_eur_usd_rate(),
             "order_ctx":         order_ctx,
-            "auto_sma":          auto_sma,
-            "load_best_sma_on_render": load_best_sma_on_render,
+            "auto_sma":          0,
+            "load_best_sma_on_render": False,
             "oos_cache_state":  oos_cache_state,
             "oos_short_summary": oos_data["short_summary"]   if oos_data else None,
             "oos_long_summary":  oos_data["long_summary"]    if oos_data else None,
             "oos_train_from":    oos_data["train_date_from"] if oos_data else None,
             "oos_train_to":      oos_data["train_date_to"]   if oos_data else None,
             "oos_val_from":      oos_data["val_date_from"]   if oos_data else None,
-            "oos_val_to":        oos_data["val_date_to"]     if oos_data else None,
-        },
+            "oos_val_to":        oos_data["val_date_to"]     if oos_data else None,        },
     )
 
 
@@ -603,6 +617,8 @@ class OrderRequest(BaseModel):
 
 
 @app.get("/asset/{symbol}/best-sma")
+# DEPRECATED: superseded by POST /asset/{symbol}/backtest (redesign-backtesting-v2).
+# Will be removed in a follow-up change.
 async def best_sma_endpoint(
     symbol: str,
     sl_short: int = 10,
@@ -663,6 +679,99 @@ async def place_order_endpoint(symbol: str, body: OrderRequest) -> JSONResponse:
             "sl_order_id": result.get("sl_order_id"),
         })
     return JSONResponse({"ok": False, "error": result["error"]}, status_code=400)
+
+
+# ---------------------------------------------------------------------------
+# Backtest endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/asset/{symbol}/backtest", response_class=HTMLResponse)
+async def run_backtest(
+    request: Request,
+    symbol: str,
+    ind1_type: str = Form("price"),
+    ind2_type: str = Form("sma"),
+    ind1_min: int = Form(1),
+    ind1_max: int = Form(200),
+    ind2_min: int = Form(1),
+    ind2_max: int = Form(200),
+    exposure: str = Form("long_cash"),
+    train_start: str = Form("2020-01-01"),
+    train_end: str = Form("2024-12-31"),
+    val_start: str = Form("2025-01-01"),
+) -> HTMLResponse:
+    sym_upper = symbol.upper()
+    cache_kwargs = dict(
+        ind1_type=ind1_type, ind2_type=ind2_type,
+        ind1_min=ind1_min, ind1_max=ind1_max,
+        ind2_min=ind2_min, ind2_max=ind2_max,
+        exposure=exposure, train_start=train_start, train_end=train_end, val_start=val_start,
+    )
+    cached = load_cache(sym_upper, **cache_kwargs)
+    if cached is not None:
+        result = cached
+    else:
+        try:
+            source_key, multiplier = resolve_source_key(sym_upper)
+            candles = fetch_ohlcv(source_key)
+            if multiplier != 1.0:
+                candles = [{**c, "open": c["open"] * multiplier, "high": c["high"] * multiplier, "low": c["low"] * multiplier, "close": c["close"] * multiplier} for c in candles]
+            result = optimize_and_validate(
+                candles=candles,
+                ind1_type=ind1_type, ind2_type=ind2_type,
+                ind1_min=ind1_min, ind1_max=ind1_max,
+                ind2_min=ind2_min, ind2_max=ind2_max,
+                exposure=exposure, train_start=train_start, train_end=train_end, val_start=val_start,
+            )
+            save_cache(sym_upper, result, **cache_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            error_html = f'<div class="alert alert-danger mt-3">Backtest failed: {exc}</div>'
+            return HTMLResponse(error_html)
+
+    return TEMPLATES.TemplateResponse(
+        "backtest_results.html",
+        {
+            "request":    request,
+            "symbol":     sym_upper,
+            "result":     result,
+            "ind1_type":  ind1_type,
+            "ind2_type":  ind2_type,
+            "ind1_min":   ind1_min,
+            "ind1_max":   ind1_max,
+            "ind2_min":   ind2_min,
+            "ind2_max":   ind2_max,
+            "exposure":   exposure,
+            "train_start": train_start,
+            "train_end":  train_end,
+            "val_start":  val_start,
+        },
+    )
+
+
+@app.delete("/asset/{symbol}/backtest-cache")
+async def delete_backtest_cache(
+    symbol: str,
+    ind1_type: str = "price",
+    ind2_type: str = "sma",
+    ind1_min: int = 1,
+    ind1_max: int = 200,
+    ind2_min: int = 1,
+    ind2_max: int = 200,
+    exposure: str = "long_cash",
+    train_start: str = "2020-01-01",
+    train_end: str = "2024-12-31",
+    val_start: str = "2025-01-01",
+) -> JSONResponse:
+    deleted = delete_cache(
+        symbol.upper(),
+        ind1_type=ind1_type, ind2_type=ind2_type,
+        ind1_min=ind1_min, ind1_max=ind1_max,
+        ind2_min=ind2_min, ind2_max=ind2_max,
+        exposure=exposure, train_start=train_start, train_end=train_end, val_start=val_start,
+    )
+    if deleted:
+        return JSONResponse({"ok": True})
+    return JSONResponse({"ok": False, "error": "No cache found"}, status_code=404)
 
 
 # ---------------------------------------------------------------------------

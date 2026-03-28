@@ -1,0 +1,145 @@
+{% set bp = result.best_params %}
+{% set ts = result.train_stats %}
+{% set vs = result.val_stats %}
+{% set trades = result.val_trades %}
+{% set op = result.open_position %}
+
+<!-- Best parameters -->
+<div class="card mb-3">
+  <div class="card-header py-1" style="font-size:0.85rem">
+    <strong>Best Parameters Found</strong>
+  </div>
+  <div class="card-body py-2" style="font-size:0.85rem">
+    <span class="badge bg-secondary me-1">Indicator 1</span>
+    {{ bp.ind1_type | upper }}{% if bp.ind1_period %} (period {{ bp.ind1_period }}){% endif %}
+    &nbsp;
+    <span class="badge bg-secondary me-1">Indicator 2</span>
+    {{ bp.ind2_type | upper }} (period {{ bp.ind2_period }})
+    &nbsp;
+    <span class="badge bg-primary me-1">Exposure</span>
+    {{ exposure }}
+  </div>
+</div>
+
+<!-- Train & Validation summaries side by side -->
+<div class="row g-2 mb-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-1" style="font-size:0.82rem">
+        <span class="badge bg-secondary me-1">Training</span>
+        {{ ts.date_from }} &rarr; {{ ts.date_to }}
+      </div>
+      <div class="card-body py-2" style="font-size:0.85rem">
+        <div>Trades: <strong>{{ ts.num_trades }}</strong></div>
+        <div>Net P&amp;L:
+          <strong class="{{ 'text-success' if ts.net_pnl >= 0 else 'text-danger' }}">
+            {{ "%+.2f" | format(ts.net_pnl) }}
+          </strong>
+        </div>
+        <div>Win Rate: <strong>{{ ts.win_rate }}%</strong></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-1" style="font-size:0.82rem">
+        <span class="badge bg-info text-dark me-1">Validation</span>
+        {{ vs.date_from }} &rarr; {{ vs.date_to }}
+      </div>
+      <div class="card-body py-2" style="font-size:0.85rem">
+        <div>Trades: <strong>{{ vs.num_trades }}</strong></div>
+        <div>Net P&amp;L:
+          <strong class="{{ 'text-success' if vs.net_pnl >= 0 else 'text-danger' }}">
+            {{ "%+.2f" | format(vs.net_pnl) }}
+          </strong>
+        </div>
+        <div>Win Rate: <strong>{{ vs.win_rate }}%</strong></div>
+        {% if op %}
+        <div class="mt-1 pt-1 border-top">
+          Open position
+          <span class="badge {{ 'bg-success' if op.direction == 'Long' else 'bg-danger' }} ms-1" style="font-size:0.7rem">
+            {{ '▲' if op.direction == 'Long' else '▼' }} {{ op.direction }}
+          </span>
+          since {{ op.entry_date }} @ {{ "%.4f" | format(op.entry_price) }}<br>
+          Current: <strong>{{ "%.4f" | format(op.current_price) }}</strong>
+          &nbsp;Unrealized P&amp;L:
+          <strong class="{{ 'text-success' if op.theoretical_pnl >= 0 else 'text-danger' }}">
+            {{ "%+.2f" | format(op.theoretical_pnl) }}
+          </strong>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Validation trade table -->
+{% if trades or op %}
+<div class="mb-2" style="font-size:0.82rem"><strong>Validation Trades</strong></div>
+<div style="max-height:50vh; overflow-y:auto">
+  <table class="table table-sm table-hover table-bordered" style="font-size:0.8rem">
+    <thead class="table-dark sticky-top">
+      <tr>
+        <th>Dir</th>
+        <th>Entry Date</th>
+        <th>Entry $</th>
+        <th>Exit Date</th>
+        <th>Exit $</th>
+        <th>P&amp;L</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in trades %}
+      <tr class="{{ 'table-success-subtle' if t.pnl is not none and t.pnl > 0 else ('table-danger-subtle' if t.pnl is not none and t.pnl < 0 else '') }}">
+        <td>
+          {% if t.direction == 'Long' %}
+          <span class="badge bg-success" style="font-size:0.7rem">&#9650; Long</span>
+          {% else %}
+          <span class="badge bg-danger" style="font-size:0.7rem">&#9660; Short</span>
+          {% endif %}
+        </td>
+        <td>{{ t.entry_date }}</td>
+        <td>{{ "%.4f" | format(t.entry_price) if t.entry_price else '—' }}</td>
+        <td>{{ t.exit_date if t.exit_date else '—' }}</td>
+        <td>{{ "%.4f" | format(t.exit_price) if t.exit_price else '—' }}</td>
+        <td class="{{ 'text-success' if t.pnl is not none and t.pnl > 0 else ('text-danger' if t.pnl is not none and t.pnl < 0 else '') }}">
+          {% if t.pnl is not none %}{{ "%+.2f" | format(t.pnl) }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% if op %}
+      <tr class="table-warning">
+        <td>
+          <span class="badge {{ 'bg-success' if op.direction == 'Long' else 'bg-danger' }}" style="font-size:0.7rem">
+            {{ '▲' if op.direction == 'Long' else '▼' }} {{ op.direction }}
+          </span>
+          <span class="badge bg-warning text-dark ms-1" style="font-size:0.7rem">OPEN</span>
+        </td>
+        <td>{{ op.entry_date }}</td>
+        <td>{{ "%.4f" | format(op.entry_price) }}</td>
+        <td class="text-muted fst-italic">now ({{ "%.4f" | format(op.current_price) }})</td>
+        <td class="text-muted fst-italic">—</td>
+        <td class="{{ 'text-success' if op.theoretical_pnl >= 0 else 'text-danger' }} fst-italic">
+          {{ "%+.2f" | format(op.theoretical_pnl) }} <small class="text-muted">(unrealized)</small>
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-muted fst-italic" style="font-size:0.85rem">No trades in validation period.</div>
+{% endif %}
+
+<!-- Clear Cache button -->
+<div class="mt-3">
+  <button
+    class="btn btn-sm btn-outline-secondary"
+    hx-delete="/asset/{{ symbol }}/backtest-cache?ind1_type={{ ind1_type }}&ind2_type={{ ind2_type }}&ind1_min={{ ind1_min }}&ind1_max={{ ind1_max }}&ind2_min={{ ind2_min }}&ind2_max={{ ind2_max }}&exposure={{ exposure }}&train_start={{ train_start }}&train_end={{ train_end }}&val_start={{ val_start }}"
+    hx-target="#backtest-results"
+    hx-swap="innerHTML"
+    hx-confirm="Clear cached backtest results?"
+  >
+    Clear Cache
+  </button>
+</div>
