@@ -26,7 +26,7 @@ from draw_chart import backtest_short_strategy, backtest_long_strategy, draw_cha
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # noqa: E402
 from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
-from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache  # noqa: E402
+from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache, list_cache  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
@@ -685,6 +685,15 @@ async def place_order_endpoint(symbol: str, body: OrderRequest) -> JSONResponse:
 # Backtest endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/asset/{symbol}/backtest-history", response_class=HTMLResponse)
+async def backtest_history(request: Request, symbol: str) -> HTMLResponse:
+    results = list_cache(symbol.upper())
+    return TEMPLATES.TemplateResponse(
+        "backtest_history.html",
+        {"request": request, "symbol": symbol.upper(), "results": results},
+    )
+
+
 @app.post("/asset/{symbol}/backtest", response_class=HTMLResponse)
 async def run_backtest(
     request: Request,
@@ -710,6 +719,9 @@ async def run_backtest(
     cached = load_cache(sym_upper, **cache_kwargs)
     if cached is not None:
         result = cached
+        # Re-save legacy cache files that are missing _params so they appear in history
+        if "_params" not in result:
+            save_cache(sym_upper, result, **cache_kwargs)
     else:
         try:
             source_key, multiplier = resolve_source_key(sym_upper)

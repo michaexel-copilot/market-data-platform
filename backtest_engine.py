@@ -471,7 +471,32 @@ def load_cache(symbol: str, **kwargs) -> dict | None:
 def save_cache(symbol: str, data: dict, **kwargs) -> None:
     BACKTEST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     p = cache_path(symbol, **kwargs)
-    p.write_text(json.dumps(data))
+    payload = dict(data)
+    payload["_params"] = {"symbol": symbol, **kwargs}
+    p.write_text(json.dumps(payload))
+
+
+def list_cache(symbol: str) -> list[dict]:
+    """Return all cached backtest results for *symbol*, newest-first.
+
+    Files without a ``_params`` key (legacy) are silently skipped.
+    """
+    BACKTEST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    files = sorted(
+        BACKTEST_CACHE_DIR.glob(f"{symbol.upper()}_*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    results = []
+    for f in files:
+        try:
+            data = json.loads(f.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        if "_params" not in data:
+            continue
+        results.append(data)
+    return results
 
 
 def delete_cache(symbol: str, **kwargs) -> bool:

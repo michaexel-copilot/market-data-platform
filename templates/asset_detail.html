@@ -212,6 +212,7 @@
       hx-target="#backtest-results"
       hx-swap="innerHTML"
       hx-indicator="#run-backtest-btn"
+      hx-on::after-request="htmx.trigger('#backtest-history', 'refresh')"
     >
       <span class="htmx-indicator spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
       Run Backtest
@@ -221,6 +222,14 @@
 
   <!-- Results placeholder -->
   <div id="backtest-results" class="mt-3"></div>
+
+  <!-- Backtest history table (loaded when accordion is visible, refreshed after each run) -->
+  <div
+    id="backtest-history"
+    hx-get="/asset/{{ symbol }}/backtest-history"
+    hx-trigger="intersect once, refresh"
+    hx-swap="innerHTML"
+  ></div>
 
   <!-- Hidden inputs kept for backward-compat with trade-table hx-include refs -->
   <input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">

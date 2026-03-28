@@ -1,0 +1,87 @@
+{% if results %}
+<div class="table-responsive mt-3">
+  <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
+    <thead class="table-dark">
+      <tr>
+        <th>Train Start</th>
+        <th>Train End</th>
+        <th>Val Start</th>
+        <th>Ind 1</th>
+        <th>Ind 2</th>
+        <th>Exposure</th>
+        <th>Train Net P&amp;L</th>
+        <th>Val Net P&amp;L</th>
+        <th>Val Trades</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      {% set p = r._params %}
+      {% set bp = r.best_params %}
+      {% set ts = r.train_stats %}
+      {% set vs = r.val_stats %}
+      {% if bp.ind1_type == "price" %}
+        {% set ind1_label = "Price" %}
+      {% else %}
+        {% set ind1_label = bp.ind1_type | upper ~ "-" ~ bp.ind1_period %}
+      {% endif %}
+      {% set ind2_label = bp.ind2_type | upper ~ "-" ~ bp.ind2_period %}
+      <tr>
+        <td>{{ p.train_start }}</td>
+        <td>{{ p.train_end }}</td>
+        <td>{{ p.val_start }}</td>
+        <td>{{ ind1_label }}</td>
+        <td>{{ ind2_label }}</td>
+        <td>{{ p.exposure }}</td>
+        <td>{{ "$%.2f"|format(ts.net_pnl) }}</td>
+        <td {% if vs.net_pnl > 0 %}class="text-success fw-semibold"{% elif vs.net_pnl < 0 %}class="text-danger fw-semibold"{% endif %}>
+          {{ "$%.2f"|format(vs.net_pnl) }}
+        </td>
+        <td>{{ vs.num_trades }}</td>
+        <td>
+          <button
+            type="button"
+            class="btn btn-outline-secondary py-0 px-1"
+            style="font-size:0.78rem"
+            data-ind1-type="{{ p.ind1_type }}"
+            data-ind2-type="{{ p.ind2_type }}"
+            data-ind1-min="{{ p.ind1_min }}"
+            data-ind1-max="{{ p.ind1_max }}"
+            data-ind2-min="{{ p.ind2_min }}"
+            data-ind2-max="{{ p.ind2_max }}"
+            data-exposure="{{ p.exposure }}"
+            data-train-start="{{ p.train_start }}"
+            data-train-end="{{ p.train_end }}"
+            data-val-start="{{ p.val_start }}"
+            onclick="loadBacktestParams(this)"
+          >Load</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted small mt-2">No cached backtest runs yet. Run a backtest to see results here.</p>
+{% endif %}
+
+<script>
+function loadBacktestParams(btn) {
+  var d = btn.dataset;
+  document.getElementById('ind1-type').value  = d.ind1Type;
+  document.getElementById('ind2-type').value  = d.ind2Type;
+  document.getElementById('ind1-min').value   = d.ind1Min;
+  document.getElementById('ind1-max').value   = d.ind1Max;
+  document.getElementById('ind2-min').value   = d.ind2Min;
+  document.getElementById('ind2-max').value   = d.ind2Max;
+  document.getElementById('exposure').value   = d.exposure;
+  document.getElementById('train-start').value = d.trainStart;
+  document.getElementById('train-end').value   = d.trainEnd;
+  document.getElementById('val-start').value   = d.valStart;
+  if (window.btTogglePeriod) {
+    btTogglePeriod('ind1', d.ind1Type);
+    btTogglePeriod('ind2', d.ind2Type);
+  }
+}
+</script>
