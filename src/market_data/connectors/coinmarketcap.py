@@ -28,12 +28,7 @@ _INTERVAL_MAP: dict[str, str] = {
 class CoinMarketCapConnector:
     name = "coinmarketcap"
     supported_asset_classes = [AssetClass.CRYPTO]
-    supported_intervals = [
-        Interval.ONE_DAY,
-        Interval.ONE_HOUR,
-        Interval.FIVE_MIN,
-        Interval.ONE_MIN,
-    ]
+    supported_intervals: list = []  # OHLCV historical requires a paid CMC plan
 
     def __init__(self) -> None:
         self._api_key = os.getenv("CMC_API_KEY", "")

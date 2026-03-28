@@ -1,0 +1,9 @@
+# Kraken pair name overrides: canonical instrument_id → Kraken filename prefix
+#
+# Convention: most assets follow {TICKER}USD (e.g. ADA → ADAUSD_60.csv).
+# Only list exceptions here.
+#
+# Example entry:
+#   bitcoin: XBTUSD   ← file on disk is XBTUSD_60.csv
+#
+bitcoin: XBTUSD

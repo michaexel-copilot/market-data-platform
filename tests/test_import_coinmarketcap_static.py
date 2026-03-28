@@ -366,3 +366,94 @@ def test_enrich_instrument_crypto_no_match(mem_conn):
 
     count = mem_conn.execute("SELECT count(*) FROM instrument_crypto").fetchone()[0]
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: migrate_fundamentals — launch_date propagation
+# ---------------------------------------------------------------------------
+
+def _seed_for_migrate(conn) -> None:
+    """Seed the minimal data needed to run migrate_fundamentals."""
+    # data_source entry required by migrate_fundamentals
+    conn.execute("""
+        INSERT INTO data_source (data_source_id, short_name, display_name, url)
+        VALUES (1, 'cmc', 'CoinMarketCap', 'https://coinmarketcap.com')
+        ON CONFLICT (data_source_id) DO NOTHING
+    """)
+    conn.execute("""
+        INSERT INTO instruments
+            (instrument_id, ticker, full_name, asset_class, is_active, first_seen_at, last_updated_at)
+        VALUES ('bitcoin', 'BTC', 'Bitcoin', 'crypto', true, now(), now())
+        ON CONFLICT (instrument_id) DO NOTHING
+    """)
+    conn.execute("""
+        INSERT INTO instrument_crypto (instrument_id) VALUES ('bitcoin')
+        ON CONFLICT (instrument_id) DO NOTHING
+    """)
+
+
+def test_migrate_fundamentals_sets_launch_date(mem_conn, snapshot_dir, monkeypatch):
+    """launch_date is populated from cmc_listing_snapshots.date_added after migration."""
+    from market_data.ingestion.import_coinmarketcap_static import import_listing_data, discover_snapshots
+    from market_data.ingestion.migrate_fundamentals import migrate_fundamentals
+
+    _seed_for_migrate(mem_conn)
+    snap = discover_snapshots(snapshot_dir)[0]
+    import_listing_data(mem_conn, snap.listing_path, snap.snapshot_ts)
+
+    result = migrate_fundamentals(mem_conn)
+    assert result["errors"] == [], result["errors"]
+
+    row = mem_conn.execute(
+        "SELECT launch_date FROM instruments WHERE instrument_id = 'bitcoin'"
+    ).fetchone()
+    assert row is not None
+    assert row[0] is not None
+    # date_added in listing fixture is '2010-07-13T00:00:00.000Z'
+    assert str(row[0]) == "2010-07-13"
+
+
+def test_migrate_fundamentals_null_date_added_skips_launch_date(mem_conn, tmp_path):
+    """When date_added is NULL in cmc_listing_snapshots, launch_date is left unchanged."""
+    from market_data.ingestion.import_coinmarketcap_static import import_listing_data
+    from market_data.ingestion.migrate_fundamentals import migrate_fundamentals
+
+    # Write a listing file with a NULL date_added for BTC
+    listing_path = tmp_path / f"{PREFIX}_listing_data.tsv"
+    fieldnames = ["id", "name", "symbol", "slug", "num_market_pairs", "date_added", "tags",
+                  "max_supply", "circulating_supply", "total_supply", "infinite_supply",
+                  "platform", "cmc_rank", "self_reported_circulating_supply",
+                  "self_reported_market_cap", "tvl_ratio", "last_updated", "price",
+                  "volume_24h", "volume_change_24h", "percent_change_1h",
+                  "percent_change_24h", "percent_change_7d", "percent_change_30d",
+                  "percent_change_60d", "percent_change_90d", "market_cap",
+                  "market_cap_dominance", "fully_diluted_market_cap", "tvl"]
+    with open(listing_path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerow({"id": "1", "name": "Bitcoin", "symbol": "BTC", "slug": "bitcoin",
+                         "num_market_pairs": "1", "date_added": "", "tags": "[]",
+                         "max_supply": "21000000", "circulating_supply": "19000000",
+                         "total_supply": "19000000", "infinite_supply": "False",
+                         "platform": "", "cmc_rank": "1",
+                         "self_reported_circulating_supply": "", "self_reported_market_cap": "",
+                         "tvl_ratio": "", "last_updated": "2025-08-05T09:11:00.000Z",
+                         "price": "100000,00", "volume_24h": "1000000,00",
+                         "volume_change_24h": "0", "percent_change_1h": "0",
+                         "percent_change_24h": "0", "percent_change_7d": "0",
+                         "percent_change_30d": "0", "percent_change_60d": "0",
+                         "percent_change_90d": "0", "market_cap": "1000000000,00",
+                         "market_cap_dominance": "60", "fully_diluted_market_cap": "2000000000,00",
+                         "tvl": ""})
+
+    _seed_for_migrate(mem_conn)
+    import_listing_data(mem_conn, listing_path, SNAPSHOT_TS)
+
+    result = migrate_fundamentals(mem_conn)
+    assert result["errors"] == [], result["errors"]
+
+    row = mem_conn.execute(
+        "SELECT launch_date FROM instruments WHERE instrument_id = 'bitcoin'"
+    ).fetchone()
+    assert row is not None
+    assert row[0] is None  # launch_date stays NULL when date_added is empty

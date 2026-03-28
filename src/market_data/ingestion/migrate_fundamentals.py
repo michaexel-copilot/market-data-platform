@@ -161,7 +161,8 @@ def migrate_fundamentals(conn) -> dict:
             c.cmc_rank           AS cmc_rank_val,
             c.total_supply       AS total_supply_val,
             c.max_supply         AS max_supply_val,
-            c.circulating_supply AS circulating_supply_val
+            c.circulating_supply AS circulating_supply_val,
+            c.date_added         AS first_historical_data
         FROM instruments i
         JOIN best_snapshot c
           ON upper(c.symbol) = upper(i.ticker)
@@ -185,6 +186,7 @@ def migrate_fundamentals(conn) -> dict:
             total_supply_val,
             max_supply_val,
             circulating_supply_val,
+            first_historical_data,
         ) = row
 
         try:
@@ -197,6 +199,15 @@ def migrate_fundamentals(conn) -> dict:
                     [cmc_name, now, instrument_id],
                 )
                 attrs_updated.append("full_name")
+
+            # ── Update instruments.launch_date from cmc_map ──────────────
+            if first_historical_data is not None:
+                launch_date = first_historical_data.date() if hasattr(first_historical_data, "date") else first_historical_data
+                conn.execute(
+                    "UPDATE instruments SET launch_date = %s, last_updated_at = %s WHERE instrument_id = %s",
+                    [launch_date, now, instrument_id],
+                )
+                attrs_updated.append("launch_date")
 
             # ── Ensure instrument_crypto row exists ──────────────────────
             conn.execute(

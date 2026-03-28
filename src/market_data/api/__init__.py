@@ -56,10 +56,12 @@ async def _graceful_shutdown(http_server: uvicorn.Server, grpc_server) -> None: 
     """Stop scheduler, flush writes, close the database connection, then stop servers."""
     logger.info("Initiating graceful shutdown…")
 
-    # Stop APScheduler if running
+    # Stop APScheduler if it was started in this process
     try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from market_data.ingestion.scheduler import build_scheduler
+        from market_data.ingestion.scheduler import get_scheduler
+        sched = get_scheduler()
+        if sched is not None and sched.running:
+            sched.shutdown(wait=False)
     except Exception:
         pass
 

@@ -11,7 +11,7 @@ The management console is a single-page web application served at `GET /console`
 ├────────────────────┬────────────────────────────────────────────┤
 │ INP_INSTRUMENT_    │ ACTION_BAR                                 │
 │ FILTER             │ [BTN_UPDATE_FUNDAMENTALS] [BTN_UPDATE_OHLCV│
-│                    │ ] [DDL_OHLCV_PERIOD]                      │
+│                    │ ]                                          │
 │ PANE_INSTRUMENT    ├────────────────────────────────────────────┤
 │ _LIST              │                                            │
 │                    │ PANE_FUNDAMENTALS                          │
@@ -35,40 +35,23 @@ Use these IDs to refer to specific elements in future refinement requests.
 | `PANE_FUNDAMENTALS` | Panel (main/right area) | Main layout | Displays fundamental data for the selected instrument as a key-value table, followed by the OHLCV Time Range section and OHLCV Data Available matrix. Shows placeholder when no instrument is selected. |
 | `ACTION_BAR` | Toolbar | Above `PANE_FUNDAMENTALS` | Contains the action buttons. All controls disabled until an instrument is selected. |
 | `BTN_UPDATE_FUNDAMENTALS` | Button | `ACTION_BAR` | "Update Fundamental Data" — triggers a fundamentals refresh. **Stub only** — logs to console. |
-| `BTN_UPDATE_OHLCV` | Button | `ACTION_BAR` | "Update OHLCV Data" — imports OHLCV data for the selected instrument and interval from the local `/appdata` cache. Shows inline status/error. Re-enables after the request completes. |
-| `DDL_OHLCV_PERIOD` | Dropdown (`<select>`) | `ACTION_BAR` | Period selector for OHLCV updates. Options: `1m`, `5m`, `1h`, `1d` (default), `1w`, `1mo`, `1y`. |
+| `BTN_UPDATE_OHLCV` | Button | `ACTION_BAR` | "Update OHLCV Data" — triggers a smart multi-step OHLCV update via `POST /v1/admin/smart-update-ohlcv`: (1) 1h freshness check, (2) conditional 1h ingest if stale, (3) Binance 1m gap detection and fill, (4) 1m→1h aggregation of synthetic candles. Shows per-step inline status. Re-enables after the request completes. |
 
-## OHLCV Import Flow
+## Smart OHLCV Update Flow
 
 When `BTN_UPDATE_OHLCV` is clicked, the console:
 
-1. POSTs to `POST /v1/admin/import-ohlcv-cache` with `{ instrument_id, interval }`.
-2. The backend resolves the best-fit data source (lowest `retrieval_priority` where the source has the requested interval available).
-3. It looks for cached files in `/appdata/<source_short_name>/<data_class>/<interval_label>/` — e.g. `/appdata/eodhd/intraday_historical_data/1-hour/` for `1h`.
-4. Matching files (by `instrument_id` or `ticker` stem, `.json` or `.csv`) are bulk-imported into the `ohlcv` table via DuckDB-native `read_json` / `read_csv_auto`.
-5. On success, the OHLCV Time Range and Data Available sections refresh automatically.
-6. If the folder does not exist, an inline error shows the expected path.
-
-### `/appdata` Folder Convention
-
-```
-/appdata/
-  <source_short_name>/          # e.g. eodhd
-    <data_class>/               # e.g. intraday_historical_data, eod_historical_data
-      <interval_label>/         # e.g. 1-hour, 1-day
-        <ticker_or_id>.json     # or .csv
-```
-
-Interval mapping:
-
-| Interval | data_class | interval_label |
-|---|---|---|
-| `1m` | `intraday_historical_data` | `1-minute` |
-| `5m` | `intraday_historical_data` | `5-minute` |
-| `1h` | `intraday_historical_data` | `1-hour` |
-| `1d` | `eod_historical_data` | `1-day` |
-
-The root can be overridden with the `APPDATA_DIR` environment variable (default: `/appdata`).
+1. POSTs to `POST /v1/admin/smart-update-ohlcv` with `{ instrument_id }`.
+2. The backend runs the following steps automatically:
+   - **1h_freshness_check** — queries `MAX(ts)` at `interval = '1h'`. If `NULL` or older than 5 hours, status is `"stale"`.
+   - **1h_ingest** — if stale, triggers the `ohlcv_1h` ingestion job for the instrument.
+   - **1m_gap_check** — queries `MAX(ts)` at `interval = '1m'`; computes gap to now.
+   - **binance_availability** — checks `ohlcv_data_available JOIN data_source` for `has_1m = TRUE AND short_name = 'binance'`.
+   - **1m_fetch** — if gap and Binance available, calls `BinanceConnector.fetch_ohlcv`.
+   - **1h_aggregation** — aggregates fetched 1m records into synthetic 1h candles (`is_aggregated = TRUE`) and persists them.
+3. On success, an inline per-step summary is shown and the OHLCV sections refresh.
+4. If Binance is unavailable for the instrument, gap fill steps are skipped with a note.
+5. On any HTTP or network error, "OHLCV update failed: \<error\>" is displayed.
 
 ## OHLCV Time Range Section
 
@@ -94,7 +77,7 @@ Then open [http://localhost:8010/console](http://localhost:8010/console) in your
 | `GET /v1/instruments/{instrument_id}/fundamentals` | Populate `PANE_FUNDAMENTALS` |
 | `GET /v1/instruments/{instrument_id}/ohlcv-availability` | OHLCV Time Range section |
 | `GET /v1/instruments/{instrument_id}/ohlcv-data-available` | OHLCV Data Available matrix |
-| `POST /v1/admin/import-ohlcv-cache` | Import OHLCV from local cache (`BTN_UPDATE_OHLCV`) |
+| `POST /v1/admin/smart-update-ohlcv` | Smart OHLCV update (`BTN_UPDATE_OHLCV`) |
 
 ---
 

@@ -9,6 +9,7 @@ import httpx
 
 from market_data.connectors.base import to_float, to_utc, with_backoff
 from market_data.connectors.rate_limiter import RateLimiter
+from market_data.db.connection import get_connection
 from market_data.models.enums import AssetClass, Interval
 from market_data.models.fundamentals import FundamentalsRecord
 from market_data.models.instrument import InstrumentRecord
@@ -23,6 +24,35 @@ _INTERVAL_MAP: dict[str, str] = {
     "1h": "1h",
     "1d": "1d",
 }
+
+# Quote currencies to try when building a Binance pair (in order of preference)
+_QUOTE_CURRENCIES = ("USDT", "USDC", "BTC", "ETH")
+
+
+def _resolve_binance_symbol(instrument_id: str) -> str:
+    """Return the Binance trading-pair symbol for *instrument_id*.
+
+    Looks up ``instruments.ticker`` so that a slug like ``aave`` becomes
+    ``AAVE`` before appending ``USDT`` → ``AAVEUSDT``.  Falls back to
+    uppercasing *instrument_id* directly if the lookup fails.
+    """
+    # If it already looks like a complete pair (ends with a known quote), use as-is.
+    raw = instrument_id.upper().replace("-", "").replace("/", "")
+    for q in _QUOTE_CURRENCIES:
+        if raw.endswith(q) and len(raw) > len(q):
+            return raw
+
+    # Look up the exchange ticker (base asset) from the instruments table.
+    try:
+        row = get_connection().execute(
+            "SELECT ticker FROM instruments WHERE instrument_id = %s",
+            [instrument_id],
+        ).fetchone()
+        base = row[0].upper() if row and row[0] else raw
+    except Exception:
+        base = raw
+
+    return base + "USDT"
 
 
 class BinanceConnector:
@@ -53,11 +83,10 @@ class BinanceConnector:
         since: datetime,
         until: datetime,
     ) -> list[OHLCVRecord]:
-        # instrument_id should be Binance symbol e.g. BTCUSDT
         kline_interval = _INTERVAL_MAP.get(str(interval), "1d")
         since_ms = int(to_utc(since).timestamp() * 1000)
         until_ms = int(to_utc(until).timestamp() * 1000)
-        symbol = instrument_id.upper().replace("-", "").replace("/", "")
+        symbol = _resolve_binance_symbol(instrument_id)
 
         records: list[OHLCVRecord] = []
         start_ms = since_ms

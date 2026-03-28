@@ -14,6 +14,7 @@ dependencies = [
     "nasdaq-data-link>=1.0.4",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.2",
+    "pyyaml>=6.0",
     "uvicorn[standard]>=0.41.0",
     "yfinance>=1.2.0",
 ]
@@ -30,6 +31,7 @@ import-hl-pairs              = "market_data.cli.import_hl_pairs:main"
 import-source-intersection   = "market_data.cli.import_source_intersection:main"
 migrate-from-duckdb = "market_data.cli.migrate_from_duckdb:main"
 import-cryptocompare         = "market_data.scripts.import_cryptocompare:main"
+import-kraken-1h             = "market_data.scripts.import_kraken_1h:main"
 ingest-now                   = "market_data.cli.ingest_now:main"
 
 [build-system]

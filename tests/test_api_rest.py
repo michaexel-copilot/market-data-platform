@@ -71,6 +71,33 @@ async def test_get_instrument_not_found(app):
     assert resp.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Fundamentals endpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_fundamentals_launch_date_present(patched_db, app):
+    """launch_date is returned as YYYY-MM-DD when populated."""
+    patched_db.execute(
+        "UPDATE instruments SET launch_date = '2009-01-03' WHERE instrument_id = 'uuid-btc-001'"
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/instruments/uuid-btc-001/fundamentals")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["launch_date"] == "2009-01-03"
+
+
+@pytest.mark.asyncio
+async def test_get_fundamentals_launch_date_absent(app):
+    """launch_date is absent from the response when the column is NULL."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/instruments/uuid-btc-001/fundamentals")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "launch_date" not in data
+
+
 @pytest.mark.asyncio
 async def test_get_ohlcv(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -287,3 +314,126 @@ async def test_list_instruments_tradeable_on_invalid(app, patched_db):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/v1/instruments?tradeable_on=unknown_exchange")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Smart OHLCV update endpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_smart_update_ohlcv_unknown_instrument(app):
+    """POST /v1/admin/smart-update-ohlcv with an unknown instrument_id returns 404."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/admin/smart-update-ohlcv",
+            json={"instrument_id": "nonexistent-instrument-xyz"},
+        )
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_smart_update_ohlcv_with_mocked_binance(patched_db, app):
+    """POST /v1/admin/smart-update-ohlcv with mocked Binance returns correct step list
+    and total_written."""
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from market_data.models.ohlcv import OHLCVRecord
+
+    # Seed a Binance data source and mark BTC as having 1m coverage
+    patched_db.execute(
+        "INSERT INTO data_source (data_source_id, name, short_name, base_url)"
+        " VALUES (99, 'Binance', 'binance', 'https://binance.com')"
+        " ON CONFLICT (data_source_id) DO NOTHING",
+    )
+    patched_db.execute(
+        "INSERT INTO ohlcv_data_available"
+        " (instrument_id, data_source_id, has_1m, has_5m, has_1h, has_1d)"
+        " VALUES ('uuid-btc-001', 99, TRUE, FALSE, FALSE, FALSE)"
+        " ON CONFLICT (instrument_id, data_source_id) DO NOTHING",
+    )
+
+    # Build 3 fake 1m records (all in the same hour bucket → 1 synthetic 1h candle)
+    now = datetime.now(tz=timezone.utc)
+    hour_ts = now.replace(minute=0, second=0, microsecond=0)
+    records_1m = [
+        OHLCVRecord(
+            instrument_id="uuid-btc-001",
+            interval="1m",
+            ts=hour_ts + timedelta(minutes=i),
+            open=100.0 + i,
+            high=101.0 + i,
+            low=99.0 + i,
+            close=100.5 + i,
+            volume=1.0,
+            source="binance",
+        )
+        for i in range(3)
+    ]
+
+    with (
+        patch(
+            "market_data.ingestion.jobs._run_interval_job",
+            new=AsyncMock(return_value={"written": 5}),
+        ),
+        patch(
+            "market_data.connectors.binance.BinanceConnector.fetch_ohlcv",
+            new=AsyncMock(return_value=records_1m),
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/v1/admin/smart-update-ohlcv",
+                json={"instrument_id": "uuid-btc-001"},
+            )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "steps" in data
+    assert "total_written" in data
+
+    steps_by_name = {s["step"]: s for s in data["steps"]}
+
+    # 1h freshness check: data is from 2023 → stale
+    assert "1h_freshness_check" in steps_by_name
+    assert steps_by_name["1h_freshness_check"]["status"] == "stale"
+    assert steps_by_name["1h_freshness_check"]["threshold_hours"] == 5
+
+    # 1h ingest ran because data was stale
+    assert steps_by_name["1h_ingest"]["status"] == "ok"
+    assert steps_by_name["1h_ingest"]["written"] == 5
+
+    # Binance was available
+    assert steps_by_name["binance_availability"]["status"] == "available"
+
+    # 1m fetch succeeded
+    assert steps_by_name["1m_fetch"]["status"] == "ok"
+    assert steps_by_name["1m_fetch"]["fetched"] == 3
+
+    # Aggregation produced 1 synthetic 1h candle (all 3 records in same hour)
+    assert steps_by_name["1h_aggregation"]["status"] == "ok"
+    assert steps_by_name["1h_aggregation"]["written"] == 1
+
+    # total_written = 5 (ingest) + 1 (aggregated 1h candle)
+    assert data["total_written"] == 6
+
+
+@pytest.mark.asyncio
+async def test_console_no_best_sma_controls(app):
+    """GET /console must not contain the removed Best SMA action-bar controls."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/console")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "INP_BEST_SMA_POS_USD" not in html
+    assert "BTN_COMPUTE_BEST_SMA_V2" not in html
+
+
+@pytest.mark.asyncio
+async def test_console_no_best_sma_section(app):
+    """GET /console must not contain the removed Best SMA Exit V1 section."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/console")
+    assert resp.status_code == 200
+    assert "best-sma-v2-section" not in resp.text

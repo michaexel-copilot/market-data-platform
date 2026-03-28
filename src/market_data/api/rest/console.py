@@ -98,17 +98,11 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
     }
     #BTN_UPDATE_OHLCV:disabled { background: #bbb; cursor: not-allowed; }
-    #DDL_OHLCV_PERIOD {
-      padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px;
-      font-size: 0.85rem; background: #fff;
+    #BTN_IMPORT_KRAKEN_1H {
+      padding: 7px 16px; background: #e67e22; color: #fff;
+      border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
     }
-    #DDL_OHLCV_PERIOD:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
-    #INP_BEST_SMA_POS_USD {
-      width: 120px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px;
-      font-size: 0.85rem; background: #fff;
-    }
-    #INP_BEST_SMA_POS_USD:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
-
+    #BTN_IMPORT_KRAKEN_1H:disabled { background: #bbb; cursor: not-allowed; }
     /* ── PANE_FUNDAMENTALS ── */
     #PANE_FUNDAMENTALS { flex: 1; overflow-y: auto; padding: 24px; }
     #PANE_FUNDAMENTALS .placeholder { color: #aaa; font-size: 0.95rem; margin-top: 40px; text-align: center; }
@@ -128,12 +122,41 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #PANE_FUNDAMENTALS .avail-yes { color: #1e7e34; }
     #PANE_FUNDAMENTALS .avail-no  { color: #bbb; }
     #PANE_FUNDAMENTALS .import-ok { color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 4px; padding: 8px 12px; font-size: 0.88rem; margin-bottom: 12px; }
+
+    /* ── NAV_TABS ── */
+    #NAV_TABS { display: flex; gap: 4px; }
+    #NAV_TABS button {
+      padding: 6px 16px; border: 1px solid #444; border-radius: 4px;
+      background: transparent; color: #ccc; cursor: pointer; font-size: 0.85rem;
+    }
+    #NAV_TABS button.active {
+      background: #e94560; border-color: #e94560; color: #fff; font-weight: 600;
+    }
+
+    /* ── PANE_SCHEDULER ── */
+    #PANE_SCHEDULER { flex: 1; overflow-y: auto; padding: 24px; display: none; }
+    #PANE_SCHEDULER h2 { font-size: 1.1rem; margin-bottom: 16px; }
+    #PANE_SCHEDULER table { border-collapse: collapse; width: 100%; max-width: 560px; }
+    #PANE_SCHEDULER th { padding: 8px 12px; font-size: 0.8rem; font-weight: 700; text-align: left; background: #f5f5f5; border-bottom: 2px solid #e0e0e0; }
+    #PANE_SCHEDULER td { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 0.88rem; }
+    #PANE_SCHEDULER td:first-child { font-family: monospace; font-weight: 600; }
+    #PANE_SCHEDULER .btn-toggle {
+      padding: 4px 14px; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 0.82rem; font-weight: 600;
+    }
+    #PANE_SCHEDULER .btn-toggle.enabled  { background: #0f9d58; color: #fff; }
+    #PANE_SCHEDULER .btn-toggle.disabled { background: #ccc;    color: #555; }
+    #PANE_SCHEDULER .sched-status { font-size: 0.82rem; color: #888; margin-top: 12px; }
   </style>
 </head>
 <body>
 
 <div id="TOP_BAR">
   <h1>Market Data — Management Console</h1>
+  <div id="NAV_TABS">
+    <button id="BTN_NAV_INSTRUMENTS" class="active">Instruments</button>
+    <button id="BTN_NAV_SCHEDULER">Scheduler</button>
+  </div>
   <div id="SEG_ASSET_CLASS">
     <button data-class="crypto" class="active">Crypto</button>
     <button data-class="equity">Equity</button>
@@ -163,20 +186,18 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   </div>
 
   <div id="PANE_CONTENT">
+    <div id="PANE_SCHEDULER">
+      <h2>Scheduler Jobs</h2>
+      <table id="SCHED_TABLE">
+        <thead><tr><th>Job ID</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="SCHED_TBODY"></tbody>
+      </table>
+      <p class="sched-status" id="SCHED_STATUS"></p>
+    </div>
     <div id="ACTION_BAR">
       <button id="BTN_UPDATE_FUNDAMENTALS" disabled>Update Fundamental Data</button>
       <button id="BTN_UPDATE_OHLCV" disabled>Update OHLCV Data</button>
-      <select id="DDL_OHLCV_PERIOD" disabled>
-        <option value="1m">1m</option>
-        <option value="5m">5m</option>
-        <option value="1h">1h</option>
-        <option value="1d" selected>1d</option>
-        <option value="1w">1w</option>
-        <option value="1mo">1mo</option>
-        <option value="1y">1y</option>
-      </select>
-      <input id="INP_BEST_SMA_POS_USD" type="number" min="1" step="1" value="100" disabled>
-      <button id="BTN_COMPUTE_BEST_SMA_V2" disabled>Compute BEST SMA Exit V1</button>
+      <button id="BTN_IMPORT_KRAKEN_1H" disabled>Import Kraken 1h</button>
     </div>
     <div id="PANE_FUNDAMENTALS">
       <p class="placeholder">Select an instrument to view details</p>
@@ -188,10 +209,112 @@ _CONSOLE_HTML = """<!DOCTYPE html>
 <script>
   // ── State ──
   let selectedInstrumentId = null;
+  let selectedTicker = null;
   let activeSources = new Set(['eodhd', 'hl']);
+  let activeTab = 'instruments'; // 'instruments' | 'scheduler'
 
   // ── Element references ──
   let allLoadedInstruments = [];
+
+  // ── NAV_TABS ──
+  const btnNavInstruments = document.getElementById('BTN_NAV_INSTRUMENTS');
+  const btnNavScheduler   = document.getElementById('BTN_NAV_SCHEDULER');
+  const paneInstrumentList = document.getElementById('PANE_INSTRUMENT_LIST');
+  const paneContent       = document.getElementById('PANE_CONTENT');
+  const paneScheduler     = document.getElementById('PANE_SCHEDULER');
+  const actionBar         = document.getElementById('ACTION_BAR');
+  const paneInstruments   = document.getElementById('PANE_FUNDAMENTALS');
+  const segAssetClass     = document.getElementById('SEG_ASSET_CLASS');
+  const segSourceFilter   = document.getElementById('SEG_SOURCE_FILTER');
+  const actBtnList        = document.getElementById('ACT_BTN_LIST');
+
+  function switchTab(tab) {
+    activeTab = tab;
+    if (tab === 'scheduler') {
+      btnNavInstruments.classList.remove('active');
+      btnNavScheduler.classList.add('active');
+      paneInstrumentList.style.display = 'none';
+      actionBar.style.display = 'none';
+      paneInstruments.style.display = 'none';
+      segAssetClass.style.display = 'none';
+      segSourceFilter.style.display = 'none';
+      actBtnList.style.display = 'none';
+      paneScheduler.style.display = 'block';
+      loadSchedulerJobs();
+    } else {
+      btnNavScheduler.classList.remove('active');
+      btnNavInstruments.classList.add('active');
+      paneInstrumentList.style.display = '';
+      actionBar.style.display = '';
+      paneInstruments.style.display = '';
+      segAssetClass.style.display = '';
+      segSourceFilter.style.display = '';
+      actBtnList.style.display = '';
+      paneScheduler.style.display = 'none';
+    }
+  }
+
+  btnNavInstruments.addEventListener('click', () => switchTab('instruments'));
+  btnNavScheduler.addEventListener('click',   () => switchTab('scheduler'));
+
+  // ── Scheduler pane ──
+  async function loadSchedulerJobs() {
+    const tbody = document.getElementById('SCHED_TBODY');
+    const status = document.getElementById('SCHED_STATUS');
+    tbody.innerHTML = '<tr><td colspan="3">Loading…</td></tr>';
+    status.textContent = '';
+    try {
+      const res = await fetch('/v1/admin/scheduler/jobs');
+      if (!res.ok) { tbody.innerHTML = `<tr><td colspan="3">Error loading jobs (HTTP ${res.status})</td></tr>`; return; }
+      const jobs = await res.json();
+      renderSchedulerJobs(jobs);
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="3">Error: ${escHtml(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderSchedulerJobs(jobs) {
+    const tbody = document.getElementById('SCHED_TBODY');
+    tbody.innerHTML = '';
+    jobs.forEach(job => {
+      const tr = document.createElement('tr');
+      const statusText = job.enabled ? 'Enabled' : 'Disabled';
+      const btnClass   = job.enabled ? 'enabled' : 'disabled';
+      const btnLabel   = job.enabled ? 'Disable' : 'Enable';
+      tr.innerHTML =
+        `<td>${escHtml(job.job_id)}</td>` +
+        `<td>${escHtml(statusText)}</td>` +
+        `<td><button class="btn-toggle ${btnClass}" data-job="${escHtml(job.job_id)}" data-enabled="${job.enabled}">${escHtml(btnLabel)}</button></td>`;
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('.btn-toggle').forEach(btn => {
+      btn.addEventListener('click', () => toggleSchedulerJob(btn));
+    });
+  }
+
+  async function toggleSchedulerJob(btn) {
+    const jobId = btn.dataset.job;
+    const currentlyEnabled = btn.dataset.enabled === 'true';
+    const action = currentlyEnabled ? 'disable' : 'enable';
+    const status = document.getElementById('SCHED_STATUS');
+    btn.disabled = true;
+    status.textContent = '';
+    try {
+      const res = await fetch(`/v1/admin/scheduler/jobs/${encodeURIComponent(jobId)}/${action}`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        status.textContent = `Error: ${data.detail || 'HTTP ' + res.status}`;
+        btn.disabled = false;
+        return;
+      }
+      const data = await res.json();
+      status.textContent = `${escHtml(jobId)} ${data.enabled ? 'enabled' : 'disabled'}.`;
+      loadSchedulerJobs();
+    } catch (e) {
+      status.textContent = `Error: ${escHtml(e.message)}`;
+      btn.disabled = false;
+    }
+  }
 
   // ── Element references ──
   const segButtons        = document.querySelectorAll('#SEG_ASSET_CLASS button');
@@ -201,9 +324,7 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   const fundamentalsPane  = document.getElementById('PANE_FUNDAMENTALS');
   const btnFundamentals   = document.getElementById('BTN_UPDATE_FUNDAMENTALS');
   const btnOhlcv          = document.getElementById('BTN_UPDATE_OHLCV');
-  const ddlPeriod         = document.getElementById('DDL_OHLCV_PERIOD');
-  const inpBestSmaPosUsd  = document.getElementById('INP_BEST_SMA_POS_USD');
-  const btnBestSmaV2      = document.getElementById('BTN_COMPUTE_BEST_SMA_V2');
+  const btnKrakenImport   = document.getElementById('BTN_IMPORT_KRAKEN_1H');
   const btnMigrate        = document.getElementById('BTN_MIGRATE_FUNDAMENTALS');
 
   // ── Asset-class selector ──
@@ -305,19 +426,20 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     document.querySelectorAll('#INSTRUMENT_LIST_UL .ITEM_INSTRUMENT').forEach(el => el.classList.remove('selected'));
     li.classList.add('selected');
     selectedInstrumentId = inst.instrument_id;
+    selectedTicker = inst.ticker;
     setActionsEnabled(true);
     loadFundamentals(inst.instrument_id, inst.ticker, inst.full_name);
+    loadKrakenStatus(inst.ticker);
   }
 
   // ── Load fundamentals ──
   async function loadFundamentals(instrumentId, ticker, fullName) {
     fundamentalsPane.innerHTML = '<p class="placeholder">Loading…</p>';
     try {
-      const [fundRes, availRes, matrixRes, bestSmaRes] = await Promise.all([
+      const [fundRes, availRes, matrixRes] = await Promise.all([
         fetch(`/v1/instruments/${instrumentId}/fundamentals`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-availability`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-data-available`),
-        fetch(`/v1/trading-strategies/${instrumentId}/v2`),
       ]);
       if (!fundRes.ok) {
         fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals (HTTP ${fundRes.status})</p>`;
@@ -326,9 +448,12 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       const data = await fundRes.json();
       const title = ticker ? `${escHtml(ticker)}${fullName ? ' — ' + escHtml(fullName) : ''}` : escHtml(instrumentId);
       const rows = Object.entries(data)
-        .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+        .filter(([k, v]) => k !== 'launch_date' && v !== null && v !== undefined && typeof v !== 'object')
         .map(([k, v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(String(v))}</td></tr>`)
         .join('');
+      const launchDateRow = data.launch_date
+        ? `<tr><td>Launch Date</td><td>${escHtml(String(data.launch_date))}</td></tr>`
+        : '';
 
       // OHLCV time range section
       let ohlcvRangeHtml = '<p style="color:#999;font-size:0.85rem">No OHLCV data available.</p>';
@@ -368,32 +493,10 @@ _CONSOLE_HTML = """<!DOCTYPE html>
         }
       }
 
-      // BEST SMA Exit V1 section
-      let bestSmaV2Html = '<p style="color:#999;font-size:0.85rem">No BEST SMA Exit V1 data available.</p>';
-      if (bestSmaRes.ok) {
-        const bestSmaData = await bestSmaRes.json();
-        const items = bestSmaData.items || [];
-        if (items.length > 0) {
-          const values = {};
-          items.forEach(it => { values[it.indicator_name] = it.indicator_value; });
-          const params = items[0].parameters || {};
-          const computedAt = items[0].computed_at ? String(items[0].computed_at).slice(0, 19).replace('T', ' ') : '—';
-          bestSmaV2Html = `
-            <table class="ohlcv-range-table"><tbody>
-              <tr><td>sma_low</td><td>${escHtml(String(values.sma_low ?? '—'))}</td></tr>
-              <tr><td>sma_high</td><td>${escHtml(String(values.sma_high ?? '—'))}</td></tr>
-              <tr><td>pos_usd</td><td>${escHtml(String(params.pos_usd ?? '—'))}</td></tr>
-              <tr><td>computed_at</td><td>${escHtml(computedAt)}</td></tr>
-            </tbody></table>
-          `;
-        }
-      }
-
       fundamentalsPane.innerHTML =
-        `<h2>${title}</h2><table>${rows}</table>` +
+        `<h2>${title}</h2><table>${rows}${launchDateRow}</table>` +
         `<div class="ohlcv-range-section"><h3>OHLCV Time Range</h3>${ohlcvRangeHtml}</div>` +
-        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '') +
-        `<div class="best-sma-v2-section"><h3>BEST SMA Exit V1</h3>${bestSmaV2Html}</div>`;
+        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '');
     } catch (e) {
       fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals: ${escHtml(e.message)}</p>`;
     }
@@ -403,75 +506,114 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   function setActionsEnabled(enabled) {
     btnFundamentals.disabled = !enabled;
     btnOhlcv.disabled        = !enabled;
-    ddlPeriod.disabled       = !enabled;
-    inpBestSmaPosUsd.disabled = !enabled;
-    btnBestSmaV2.disabled     = !enabled;
+    if (!enabled) {
+      btnKrakenImport.disabled = true;
+      btnKrakenImport.textContent = 'Import Kraken 1h';
+    }
   }
+
+  // ── Load Kraken 1h status for ACTION_BAR button ──
+  async function loadKrakenStatus(ticker) {
+    btnKrakenImport.disabled = true;
+    btnKrakenImport.textContent = 'Checking…';
+    try {
+      const res = await fetch(`/v1/instruments/${encodeURIComponent(ticker)}/kraken-1h-status`);
+      if (!res.ok) { btnKrakenImport.textContent = 'Import Kraken 1h'; return; }
+      const data = await res.json();
+      if (!data.has_file) {
+        btnKrakenImport.textContent = 'No Kraken File';
+        btnKrakenImport.disabled = true;
+      } else if (data.already_imported) {
+        btnKrakenImport.textContent = 'Re-import Kraken 1h';
+        btnKrakenImport.disabled = false;
+      } else {
+        btnKrakenImport.textContent = 'Import Kraken 1h';
+        btnKrakenImport.disabled = false;
+      }
+    } catch (_) {
+      btnKrakenImport.textContent = 'Import Kraken 1h';
+      btnKrakenImport.disabled = true;
+    }
+  }
+
+  // ── BTN_IMPORT_KRAKEN_1H ──
+  btnKrakenImport.addEventListener('click', async () => {
+    if (!selectedTicker) return;
+    btnKrakenImport.disabled = true;
+    btnKrakenImport.textContent = 'Importing…';
+    try {
+      const res = await fetch(`/v1/instruments/${encodeURIComponent(selectedTicker)}/import-kraken-1h`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        _prependOhlcvMessage(`<p class="error">Kraken import failed: ${escHtml(data.detail || 'HTTP ' + res.status)}</p>`);
+        btnKrakenImport.textContent = 'Import Kraken 1h';
+        btnKrakenImport.disabled = false;
+        return;
+      }
+      const from = data.gap_closed_from ? data.gap_closed_from.slice(0, 10) : '?';
+      const to   = data.gap_closed_to   ? data.gap_closed_to.slice(0, 10)   : '?';
+      _prependOhlcvMessage(`<p class="import-ok">Kraken 1h imported: ${escHtml(String(data.rows_inserted))} rows (${escHtml(from)} → ${escHtml(to)})</p>`);
+      btnKrakenImport.textContent = 'Re-import Kraken 1h';
+      btnKrakenImport.disabled = false;
+      _refreshOhlcvSections(selectedInstrumentId);
+    } catch (e) {
+      _prependOhlcvMessage(`<p class="error">Kraken import failed: ${escHtml(e.message)}</p>`);
+      btnKrakenImport.textContent = 'Import Kraken 1h';
+      btnKrakenImport.disabled = false;
+    }
+  });
 
   // ── BTN_UPDATE_FUNDAMENTALS stub ──
   btnFundamentals.addEventListener('click', () => {
     console.log(`[stub] BTN_UPDATE_FUNDAMENTALS clicked for ${selectedInstrumentId}`);
   });
 
-  // ── BTN_UPDATE_OHLCV — import from local cache ──
+  // ── BTN_UPDATE_OHLCV — smart multi-step OHLCV update ──
   btnOhlcv.addEventListener('click', async () => {
     if (!selectedInstrumentId) return;
-    const interval = ddlPeriod.value;
     btnOhlcv.disabled = true;
-    btnOhlcv.textContent = 'Importing\u2026';
+    btnOhlcv.textContent = 'Updating\u2026';
     try {
-      const res = await fetch('/v1/admin/import-ohlcv-cache', {
+      const res = await fetch('/v1/admin/smart-update-ohlcv', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({instrument_id: selectedInstrumentId, interval}),
+        body: JSON.stringify({instrument_id: selectedInstrumentId}),
       });
       const data = await res.json();
       if (!res.ok) {
         const msg = (data.detail) ? escHtml(String(data.detail)) : `HTTP ${res.status}`;
-        _prependOhlcvMessage(`<p class="error">OHLCV import failed: ${msg}</p>`);
+        _prependOhlcvMessage(`<p class="error">OHLCV update failed: ${msg}</p>`);
         return;
       }
-      if (data.status === 'folder_not_found') {
-        _prependOhlcvMessage(`<p class="error">Cache folder not found. Expected: ${escHtml(data.expected_path || '')}</p>`);
-        return;
-      }
-      // Success
-      _prependOhlcvMessage(`<p class="import-ok">Imported ${data.rows_imported} rows from cache.</p>`);
-      // Refresh OHLCV sections
+      // Build a human-readable summary from the steps list
+      const steps = data.steps || [];
+      const lines = [];
+      steps.forEach(s => {
+        if (s.step === '1h_freshness_check') {
+          const ts = s.last_ts ? s.last_ts.slice(0,16).replace('T',' ') : 'none';
+          lines.push(`1h data: ${s.status === 'stale' ? 'stale' : 'fresh'} (last: ${escHtml(ts)})`);
+        } else if (s.step === '1h_ingest' && s.status !== 'skipped') {
+          lines.push(`1h ingest: ${s.status === 'ok' ? escHtml(String(s.written)) + ' rows written' : escHtml(s.status)}`);
+        } else if (s.step === '1m_gap_check' && s.status === 'gap') {
+          lines.push(`1m gap: ${escHtml(String(s.gap_hours))}h`);
+        } else if (s.step === '1m_fetch' && s.status === 'ok') {
+          lines.push(`Fetched ${escHtml(String(s.fetched))} Binance 1m candles`);
+        } else if (s.step === '1h_aggregation' && s.status === 'ok') {
+          lines.push(`Aggregated \u2192 ${escHtml(String(s.written))} synthetic 1h candles`);
+        } else if (s.step === 'binance_availability' && s.status === 'unavailable') {
+          lines.push('Binance 1m not available for this instrument \u2014 gap fill skipped');
+        } else if (s.step === '1m_fetch' && s.status === 'error') {
+          lines.push(`Binance 1m fetch error: ${escHtml(s.error || '')}`);
+        }
+      });
+      const summary = lines.length ? lines.join('. ') + '.' : `Done. ${data.total_written} rows written.`;
+      _prependOhlcvMessage(`<p class="import-ok">${summary}</p>`);
       _refreshOhlcvSections(selectedInstrumentId);
     } catch (e) {
-      _prependOhlcvMessage(`<p class="error">OHLCV import failed: ${escHtml(e.message)}</p>`);
+      _prependOhlcvMessage(`<p class="error">OHLCV update failed: ${escHtml(e.message)}</p>`);
     } finally {
       btnOhlcv.disabled = false;
       btnOhlcv.textContent = 'Update OHLCV Data';
-    }
-  });
-
-  // ── BTN_COMPUTE_BEST_SMA_V2 — compute enhanced BEST SMA strategy ──
-  btnBestSmaV2.addEventListener('click', async () => {
-    if (!selectedInstrumentId) return;
-    const posUsd = Number(inpBestSmaPosUsd.value || '100');
-    btnBestSmaV2.disabled = true;
-    btnBestSmaV2.textContent = 'Computing…';
-    try {
-      const res = await fetch(`/v1/trading-strategies/${selectedInstrumentId}/compute-v2`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({pos_usd: posUsd}),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const msg = (data.error) ? escHtml(String(data.error)) : `HTTP ${res.status}`;
-        _prependOhlcvMessage(`<p class="error">BEST SMA Exit V1 compute failed: ${msg}</p>`);
-        return;
-      }
-      _prependOhlcvMessage('<p class="import-ok">BEST SMA Exit V1 computed successfully.</p>');
-      _refreshBestSmaV2Section(selectedInstrumentId);
-    } catch (e) {
-      _prependOhlcvMessage(`<p class="error">BEST SMA Exit V1 compute failed: ${escHtml(e.message)}</p>`);
-    } finally {
-      btnBestSmaV2.disabled = false;
-      btnBestSmaV2.textContent = 'Compute BEST SMA Exit V1';
     }
   });
 
@@ -525,38 +667,6 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     } catch (_) { /* silent */ }
   }
 
-  async function _refreshBestSmaV2Section(instrumentId) {
-    try {
-      const section = fundamentalsPane.querySelector('.best-sma-v2-section');
-      if (!section) return;
-
-      const res = await fetch(`/v1/trading-strategies/${instrumentId}/v2`);
-      if (!res.ok) {
-        section.innerHTML = '<h3>BEST SMA Exit V1</h3><p style="color:#999;font-size:0.85rem">No BEST SMA Exit V1 data available.</p>';
-        return;
-      }
-      const data = await res.json();
-      const items = data.items || [];
-      if (items.length === 0) {
-        section.innerHTML = '<h3>BEST SMA Exit V1</h3><p style="color:#999;font-size:0.85rem">No BEST SMA Exit V1 data available.</p>';
-        return;
-      }
-
-      const values = {};
-      items.forEach(it => { values[it.indicator_name] = it.indicator_value; });
-      const params = items[0].parameters || {};
-      const computedAt = items[0].computed_at ? String(items[0].computed_at).slice(0, 19).replace('T', ' ') : '—';
-      section.innerHTML = `
-        <h3>BEST SMA Exit V1</h3>
-        <table class="ohlcv-range-table"><tbody>
-          <tr><td>sma_low</td><td>${escHtml(String(values.sma_low ?? '—'))}</td></tr>
-          <tr><td>sma_high</td><td>${escHtml(String(values.sma_high ?? '—'))}</td></tr>
-          <tr><td>pos_usd</td><td>${escHtml(String(params.pos_usd ?? '—'))}</td></tr>
-          <tr><td>computed_at</td><td>${escHtml(computedAt)}</td></tr>
-        </tbody></table>
-      `;
-    } catch (_) { /* silent */ }
-  }
 
   // ── BTN_MIGRATE_FUNDAMENTALS ──
   btnMigrate.addEventListener('click', async () => {

@@ -27,6 +27,7 @@ class OHLCVRecord(BaseModel):
     ingested_at: datetime | None = None
     tick_1h: int | None = None
     tick_1d: int | None = None
+    is_aggregated: bool = False
 
     @field_validator("interval", mode="before")
     @classmethod

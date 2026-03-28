@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -64,6 +64,47 @@ class RunIngestRequest(BaseModel):
     since: datetime | None = None
     until: datetime | None = None
     fill_gaps: bool = True
+
+
+class SmartUpdateOhlcvRequest(BaseModel):
+    instrument_id: str
+
+
+def _aggregate_1m_to_1h(instrument_id: str, records_1m: list) -> list:
+    """Aggregate 1-minute OHLCV records into synthetic 1-hour candles.
+
+    Each output candle is marked ``is_aggregated = True`` with
+    ``source = 'aggregated:binance_1m'``.
+    """
+    from collections import defaultdict
+
+    from market_data.models.enums import Interval
+    from market_data.models.ohlcv import OHLCVRecord
+
+    buckets: defaultdict = defaultdict(list)
+    for r in records_1m:
+        hour_ts = r.ts.replace(minute=0, second=0, microsecond=0, tzinfo=r.ts.tzinfo)
+        buckets[hour_ts].append(r)
+
+    aggregated: list = []
+    for hour_ts, candles in sorted(buckets.items()):
+        candles_sorted = sorted(candles, key=lambda c: c.ts)
+        vol = sum(c.volume for c in candles_sorted if c.volume is not None)
+        aggregated.append(
+            OHLCVRecord(
+                instrument_id=instrument_id,
+                interval=Interval.ONE_HOUR,
+                ts=hour_ts,
+                open=candles_sorted[0].open,
+                high=max(c.high for c in candles_sorted),
+                low=min(c.low for c in candles_sorted),
+                close=candles_sorted[-1].close,
+                volume=vol if vol else None,
+                source="aggregated:binance_1m",
+                is_aggregated=True,
+            )
+        )
+    return aggregated
 
 
 @router.post("/import-ohlcv")
@@ -489,3 +530,212 @@ async def run_ingest(req: RunIngestRequest) -> dict:
         "symbol": req.symbol,
         "asset_class": req.asset_class,
     }
+
+
+@router.post("/smart-update-ohlcv")
+async def run_smart_update_ohlcv(req: SmartUpdateOhlcvRequest) -> dict:
+    """Smart OHLCV update for a single instrument.
+
+    Performs the following steps automatically:
+
+    1. **1h freshness check** — if the most recent 1h candle is older than 5 hours
+       (or no 1h data exists), trigger the ``ohlcv_1h`` ingestion job for this instrument.
+    2. **1m gap fill via Binance** — if the instrument has Binance 1m coverage
+       (per ``ohlcv_data_available``), fetch 1m candles for the gap between the most recent
+       1m candle and now, then aggregate them into synthetic 1h candles
+       (``is_aggregated = TRUE``).  Aggregated candles are stored with
+       ``source = 'aggregated:binance_1m'`` and will be overwritten automatically when
+       real primary-source 1h data arrives later.
+
+    Returns a ``steps`` list with the outcome of each stage and a ``total_written``
+    summary count.
+    """
+    from datetime import timedelta
+
+    from market_data.models.enums import Interval
+    from market_data.ingestion.jobs import _run_interval_job
+    from market_data.ingestion.writer import write_ohlcv
+
+    _STALE_THRESHOLD_HOURS = 5
+
+    conn = get_connection()
+    steps: list[dict] = []
+    total_written = 0
+    now = datetime.now(tz=timezone.utc)
+
+    # ── Validate instrument exists ────────────────────────────────────────────
+    inst_row = conn.execute(
+        "SELECT ticker, asset_class FROM instruments WHERE instrument_id = %s LIMIT 1",
+        [req.instrument_id],
+    ).fetchone()
+    if inst_row is None:
+        raise HTTPException(status_code=404, detail=f"Instrument {req.instrument_id!r} not found")
+    ticker, asset_class_str = inst_row[0], inst_row[1]
+
+    # ── Step 1: 1h freshness check ────────────────────────────────────────────
+    row_1h = conn.execute(
+        "SELECT MAX(ts) FROM ohlcv WHERE instrument_id = %s AND interval = '1h'",
+        [req.instrument_id],
+    ).fetchone()
+    last_1h_ts: datetime | None = row_1h[0] if row_1h else None
+
+    is_stale = (
+        last_1h_ts is None
+        or (now - last_1h_ts).total_seconds() > _STALE_THRESHOLD_HOURS * 3600
+    )
+    steps.append({
+        "step": "1h_freshness_check",
+        "status": "stale" if is_stale else "fresh",
+        "last_ts": last_1h_ts.isoformat() if last_1h_ts else None,
+        "threshold_hours": _STALE_THRESHOLD_HOURS,
+    })
+
+    # ── Step 2: 1h ingest (only if stale) ────────────────────────────────────
+    ingest_written = 0
+    if is_stale:
+        try:
+            stats = await _run_interval_job(
+                Interval.ONE_HOUR,
+                instrument_id=req.instrument_id,
+                fill_gaps=True,
+            )
+            ingest_written = stats.get("written", 0)
+            total_written += ingest_written
+            steps.append({"step": "1h_ingest", "status": "ok", "written": ingest_written})
+        except Exception as exc:  # noqa: BLE001
+            steps.append({"step": "1h_ingest", "status": "error", "error": str(exc)})
+    else:
+        steps.append({"step": "1h_ingest", "status": "skipped", "written": 0})
+
+    # ── Step 3: 1m gap check ──────────────────────────────────────────────────
+    row_1m = conn.execute(
+        "SELECT MAX(ts) FROM ohlcv WHERE instrument_id = %s AND interval = '1m'",
+        [req.instrument_id],
+    ).fetchone()
+    last_1m_ts: datetime | None = row_1m[0] if row_1m else None
+
+    gap_start = last_1m_ts or (now - timedelta(hours=_STALE_THRESHOLD_HOURS))
+    gap_hours = (now - gap_start).total_seconds() / 3600
+
+    has_gap = gap_hours > 0.1  # at least ~6 minutes
+    steps.append({
+        "step": "1m_gap_check",
+        "status": "gap" if has_gap else "no_gap",
+        "gap_start": gap_start.isoformat(),
+        "gap_hours": round(gap_hours, 2),
+    })
+
+    # ── Step 4: Check Binance 1m availability ────────────────────────────────
+    binance_row = conn.execute(
+        """
+        SELECT 1
+        FROM ohlcv_data_available oda
+        JOIN data_source ds ON ds.data_source_id = oda.data_source_id
+        WHERE oda.instrument_id = %s
+          AND oda.has_1m = TRUE
+          AND ds.short_name = 'binance'
+        LIMIT 1
+        """,
+        [req.instrument_id],
+    ).fetchone()
+    binance_available = binance_row is not None
+    steps.append({
+        "step": "binance_availability",
+        "status": "available" if binance_available else "unavailable",
+    })
+
+    # ── Steps 5–6: Fetch 1m + aggregate to 1h ────────────────────────────────
+    if has_gap and binance_available:
+        from market_data.connectors.binance import BinanceConnector
+
+        connector = BinanceConnector()
+        try:
+            records_1m = await connector.fetch_ohlcv(
+                req.instrument_id,
+                Interval.ONE_MIN,
+                since=gap_start,
+                until=now,
+            )
+            steps.append({"step": "1m_fetch", "status": "ok", "fetched": len(records_1m)})
+        except Exception as exc:  # noqa: BLE001
+            steps.append({"step": "1m_fetch", "status": "error", "error": str(exc)})
+            records_1m = []
+
+        if records_1m:
+            aggregated = _aggregate_1m_to_1h(req.instrument_id, records_1m)
+            agg_written = write_ohlcv(aggregated)
+            total_written += agg_written
+            steps.append({"step": "1h_aggregation", "status": "ok", "written": agg_written})
+        else:
+            steps.append({"step": "1h_aggregation", "status": "skipped", "written": 0})
+    else:
+        reason = "no_gap" if not has_gap else "binance_unavailable"
+        steps.append({"step": "1m_fetch",      "status": "skipped", "reason": reason})
+        steps.append({"step": "1h_aggregation","status": "skipped", "reason": reason})
+
+    return {"steps": steps, "total_written": total_written}
+
+
+# ── Scheduler job admin ────────────────────────────────────────────────────────
+
+@router.get("/scheduler/jobs")
+def list_scheduler_jobs() -> list[dict]:
+    """Return the enabled state of every known scheduler job."""
+    from market_data.db.scheduler_jobs import load_job_states
+
+    conn = get_connection()
+    states = load_job_states(conn)
+    return [{"job_id": job_id, "enabled": enabled} for job_id, enabled in sorted(states.items())]
+
+
+@router.post("/scheduler/jobs/{job_id}/enable")
+async def enable_scheduler_job(job_id: str) -> dict:
+    """Enable a scheduler job and, if the scheduler is running, resume it immediately."""
+    from market_data.db.scheduler_jobs import set_job_enabled
+    from market_data.ingestion.scheduler import _JOB_REGISTRY, get_scheduler
+
+    conn = get_connection()
+    try:
+        set_job_enabled(conn, job_id, enabled=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    scheduler = get_scheduler()
+    if scheduler is not None:
+        existing = scheduler.get_job(job_id)
+        if existing is not None:
+            existing.resume()
+        else:
+            # Job was disabled at start-up and never added — add it now.
+            if job_id in _JOB_REGISTRY:
+                func, trigger_factory = _JOB_REGISTRY[job_id]
+                scheduler.add_job(
+                    func,
+                    trigger=trigger_factory(),
+                    id=job_id,
+                    max_instances=1,
+                    coalesce=True,
+                )
+
+    return {"job_id": job_id, "enabled": True}
+
+
+@router.post("/scheduler/jobs/{job_id}/disable")
+async def disable_scheduler_job(job_id: str) -> dict:
+    """Disable a scheduler job and, if the scheduler is running, pause it immediately."""
+    from market_data.db.scheduler_jobs import set_job_enabled
+    from market_data.ingestion.scheduler import get_scheduler
+
+    conn = get_connection()
+    try:
+        set_job_enabled(conn, job_id, enabled=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    scheduler = get_scheduler()
+    if scheduler is not None:
+        job = scheduler.get_job(job_id)
+        if job is not None:
+            job.pause()
+
+    return {"job_id": job_id, "enabled": False}

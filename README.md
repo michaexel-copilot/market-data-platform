@@ -1,6 +1,6 @@
 # Market Data Platform
 
-A unified, multi-asset-class market data platform backed by [DuckDB](https://duckdb.org/). Collects, stores, and serves instrument reference data, fundamental attributes, and OHLCV time-series from 14 data providers through a single REST / gRPC / JSON-RPC API surface.
+A unified, multi-asset-class market data platform backed by PostgreSQL + [TimescaleDB](https://www.timescale.com/). Collects, stores, and serves instrument reference data, fundamental attributes, and OHLCV time-series from 14 data providers through a single REST / gRPC / JSON-RPC API surface.
 
 ---
 
@@ -15,7 +15,8 @@ A unified, multi-asset-class market data platform backed by [DuckDB](https://duc
 | **REST API** | FastAPI — instruments list/detail, fundamentals, OHLCV |
 | **gRPC API** | `ListInstruments`, `GetInstrument`, `GetOHLCV` (streaming), `GetFundamentals` |
 | **JSON-RPC 2.0 API** | Same capabilities as REST at `POST /jsonrpc` |
-| **Management Console** | Browser UI at `/console` — browse instruments by asset class, view fundamentals, action buttons for future refresh operations |
+| **Scheduler Admin** | DB-backed enable/disable of background ingestion jobs; REST API + Management Console UI |
+| **Management Console** | Browser UI at `/console` — browse instruments by asset class, view fundamentals, trigger imports; Scheduler pane to enable/disable ingestion jobs |
 
 ---
 
@@ -46,7 +47,7 @@ cp .env.example .env
 Key settings:
 
 ```ini
-DUCKDB_PATH=/appdata/market-data-platform/db/market_data.duckdb   # path to the DuckDB file
+DATABASE_URL=postgresql://market_data:<pw>@localhost/market_data_platform
 HTTP_PORT=8010                   # REST API port (default: 8010)
 GRPC_PORT=50060                  # gRPC port (default: 50060)
 CMC_STATIC_DIR=/path/to/cmc/snapshots   # for the CMC importer
@@ -58,7 +59,7 @@ CMC_STATIC_DIR=/path/to/cmc/snapshots   # for the CMC importer
 uv run migrate
 ```
 
-This creates all tables and views in the DuckDB file specified by `DUCKDB_PATH`.
+This applies all pending SQL migrations to the PostgreSQL database specified by `DATABASE_URL`.
 
 ### 4. Start the server
 
@@ -95,6 +96,8 @@ HTTP_PORT=9000 GRPC_PORT=9001 uv run serve
 | `uv run import-cryptocompare stage` | Load CryptoCompare flat file into staging table (`stg_cryptocompare_1h`) |
 | `uv run import-cryptocompare migrate` | Upsert staged 1h rows into the `ohlcv` hypertable |
 | `uv run import-cryptocompare aggregate-daily` | Derive and upsert 1d candles from staged 1h data |
+| `uv run import-hl-pairs` | Fetch and upsert Hyperliquid perpetual pairs |
+| `uv run import-source-intersection` | Rebuild `instrument_source_intersection` from live source coverage |
 | `uv run compute-indicators` | Bulk-compute trading strategy indicators and store results |
 
 ---
@@ -131,6 +134,24 @@ curl "http://localhost:8010/v1/trading-strategies/BTC?strategy_name=best_sma"
 ```
 
 Returns `404` if no values have been computed yet. Use `compute-indicators` (see below) or the `POST` endpoint to populate.
+
+### Admin
+
+All endpoints are prefixed `/v1/admin`.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/admin/import-ohlcv` | Trigger OHLCV import for one instrument + interval |
+| `POST` | `/v1/admin/import-ohlcv-cache` | Import OHLCV from local cache folder |
+| `POST` | `/v1/admin/migrate-fundamentals` | Promote instruments from staging to master table |
+| `POST` | `/v1/admin/import-cmc-static` | Import CoinMarketCap TSV snapshots from server filesystem |
+| `POST` | `/v1/admin/import-hl-pairs` | Fetch and upsert Hyperliquid perpetual pairs |
+| `POST` | `/v1/admin/run-ingest` | Manually trigger an ingestion job for a specific interval |
+| `POST` | `/v1/admin/smart-update-ohlcv` | Automated multi-step OHLCV update: freshness check, 1h ingest, Binance 1m gap fill and 1m→1h aggregation for a single instrument |
+| `POST` | `/v1/admin/compute-indicators` | Compute strategy indicators (bulk or per-symbol) |
+| `GET` | `/v1/admin/scheduler/jobs` | List scheduler jobs with enabled state |
+| `POST` | `/v1/admin/scheduler/jobs/{job_id}/enable` | Enable a scheduler job |
+| `POST` | `/v1/admin/scheduler/jobs/{job_id}/disable` | Disable a scheduler job |
 
 ### Other
 
@@ -188,10 +209,18 @@ The importer is idempotent — re-running on an already-imported directory is sa
 
 Open `http://localhost:8010/console` in your browser.
 
+### Instruments tab (default)
+
 - **Asset-class selector** — switch between crypto / equity / ETF / FX / commodity
-- **Instrument list** — scrollable left pane filtered by selected class
-- **Fundamentals pane** — key-value display of asset-class-specific attributes
-- **Action buttons** — `BTN_UPDATE_FUNDAMENTALS` and `BTN_UPDATE_OHLCV` (stubs; logic not yet implemented)
+- **Source filter** — narrow instrument list by data source (eodhd, hl, yahoo-finance, cmc)
+- **Instrument list** — scrollable left pane with live filter input
+- **Fundamentals pane** — key-value display of asset-class-specific attributes, OHLCV time ranges, data-available matrix, and pre-computed BEST SMA Exit V1 indicators
+- **Action buttons** — **Update OHLCV Data** (smart multi-step update: 1h freshness check, conditional 1h ingest, Binance 1m gap fill and 1m→1h aggregation), Compute BEST SMA Exit V1, Migrate Fundamental Data
+
+### Scheduler tab
+
+- Lists all four background ingestion jobs (`ohlcv_1m`, `ohlcv_5m`, `ohlcv_1h`, `ohlcv_1d`) with their current enabled state
+- **Enable / Disable** buttons take effect immediately (live scheduler pause/resume) and persist to the database
 
 See [docs/management-console.md](docs/management-console.md) for the full UI element reference.
 
@@ -199,9 +228,9 @@ See [docs/management-console.md](docs/management-console.md) for the full UI ele
 
 ## Database Schema
 
-Managed via sequential SQL migrations in `src/market_data/db/migrations/`:
+Managed via sequential SQL migrations in `src/market_data/db/migrations_pg/`:
 
-| Migration | Tables / Views |
+| Migration | Tables / Views / Changes |
 |---|---|
 | `001` | `instruments` |
 | `002` | `instrument_identifiers` |
@@ -211,10 +240,28 @@ Managed via sequential SQL migrations in `src/market_data/db/migrations/`:
 | `006` | `instrument_fx` |
 | `007` | `instrument_commodity` |
 | `008` | `ohlcv` |
-| `009` | `ohlcv_weekly`, `ohlcv_monthly` (views) |
+| `009` | `ohlcv_weekly`, `ohlcv_monthly` (plain views) |
 | `010` | `cmc_import_log`, `cmc_listing_snapshots`, `cmc_coin_tags`, `cmc_categories`, `cmc_category_coins`, `cmc_map` |
-| `011` | Adds `cmc_id`, `cmc_slug`, `cmc_rank` columns to `instrument_crypto` |
+| `011` | Adds `cmc_id`, `cmc_slug`, `cmc_rank` to `instrument_crypto` |
+| `012` | `data_source` |
+| `013` | `attribute_source_map` |
+| `014` | `ticker_source_map` |
+| `015` | `ohlcv_data_available` |
+| `016` | Seeds eodhd data source; populates `ohlcv_data_available` |
 | `017` | `trading_strategies` |
+| `018` | Enables TimescaleDB extension |
+| `019` | Converts `ohlcv` to TimescaleDB hypertable |
+| `020` | Converts `cmc_listing_snapshots` to TimescaleDB hypertable |
+| `021` | Replaces plain views with TimescaleDB continuous aggregates (`ohlcv_weekly`, `ohlcv_monthly`) |
+| `022` | `instrument_hyperliquid` |
+| `023` | Seeds Hyperliquid data source |
+| `024` | `instrument_source_intersection` |
+| `025` | `stg_cryptocompare_1h`; seeds CryptoCompare data source |
+| `026` | Adds `tick_1h` column to `ohlcv` |
+| `027` | Adds `tick_1d` column to `ohlcv` |
+| `028` | `asset_not_found` |
+| `029` | `scheduler_jobs` |
+| `030` | Adds `is_aggregated BOOLEAN NOT NULL DEFAULT FALSE` column to `ohlcv` (marks synthetic candles aggregated from finer-grained data) |
 
 ---
 
@@ -276,10 +323,10 @@ The command exits with code `0` on success or `1` if any instrument failed (erro
 
 ```bash
 # Install dev dependencies
-uv sync --dev
+uv sync --group dev
 
 # Run tests
-uv run pytest
+uv run python -m pytest
 
 # Lint
 uv run ruff check src tests
@@ -295,18 +342,20 @@ uv run mypy src
 ```
 src/market_data/
 ├── api/
-│   ├── rest/          # FastAPI routers (instruments, ohlcv, console)
+│   ├── rest/          # FastAPI routers (instruments, ohlcv, admin, console)
 │   ├── grpc/          # gRPC servicer + generated stubs
 │   └── jsonrpc/       # JSON-RPC 2.0 handler
-├── cli/               # CLI entry point (market-data command)
+├── cli/               # CLI entry points
 ├── connectors/        # 14 data source adapters
 ├── db/
-│   ├── migrations/    # SQL DDL files (001–011)
-│   ├── connection.py  # DuckDB connection manager
+│   ├── migrations_pg/ # SQL DDL files (001–029)
+│   ├── connection.py  # PostgreSQL connection manager (psycopg3)
 │   ├── migrate.py     # Migration runner
+│   ├── scheduler_jobs.py  # load_job_states / set_job_enabled helpers
 │   └── resolver.py    # Symbol → instrument_id resolution
-├── ingestion/         # Scheduler, backfill, writer, archiver
-└── models/            # Pydantic models and enums
+├── ingestion/         # Scheduler (APScheduler), job registry, writer
+├── models/            # Pydantic models and enums
+└── strategies/        # Trading strategy implementations
 docs/
 ├── management-console.md
 ├── import-coinmarketcap-static.md

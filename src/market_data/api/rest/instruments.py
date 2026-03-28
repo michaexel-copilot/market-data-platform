@@ -176,14 +176,17 @@ async def get_fundamentals(symbol: str) -> dict:
     instrument_id = resolve_symbol(symbol)
     conn = get_connection()
     base_row = conn.execute(
-        "SELECT instrument_id, asset_class FROM instruments WHERE instrument_id = %s",
+        "SELECT instrument_id, asset_class, launch_date FROM instruments WHERE instrument_id = %s",
         [instrument_id],
     ).fetchone()
     if not base_row:
         raise SymbolNotFoundError(symbol)
     asset_class = base_row[1]
+    launch_date = base_row[2]
 
     result: dict = {"instrument_id": instrument_id, "asset_class": asset_class}
+    if launch_date is not None:
+        result["launch_date"] = launch_date.isoformat() if hasattr(launch_date, "isoformat") else str(launch_date)
     table_map = {
         "crypto":    "instrument_crypto",
         "equity":    "instrument_equity",

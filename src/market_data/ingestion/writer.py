@@ -40,6 +40,7 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             now,
             int(r.ts.timestamp()) // 3600 if str(r.interval) == "1h" else None,
             int(r.ts.timestamp()) // 86400 if str(r.interval) == "1d" else None,
+            r.is_aggregated,
         )
         for r in records
     ]
@@ -49,21 +50,35 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             INSERT INTO ohlcv
                 (instrument_id, interval, ts, open, high, low, close,
                  volume, vwap, trade_count, market_cap, source, ingested_at,
-                 tick_1h, tick_1d)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 tick_1h, tick_1d, is_aggregated)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
-                open       = excluded.open,
-                high       = excluded.high,
-                low        = excluded.low,
-                close      = excluded.close,
-                volume     = COALESCE(excluded.volume, ohlcv.volume),
-                vwap       = COALESCE(excluded.vwap, ohlcv.vwap),
-                trade_count = COALESCE(excluded.trade_count, ohlcv.trade_count),
-                market_cap  = COALESCE(excluded.market_cap, ohlcv.market_cap),
-                source      = excluded.source,
-                ingested_at = excluded.ingested_at,
-                tick_1h     = excluded.tick_1h,
-                tick_1d     = excluded.tick_1d
+                open        = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.open        ELSE ohlcv.open        END,
+                high        = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.high        ELSE ohlcv.high        END,
+                low         = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.low         ELSE ohlcv.low         END,
+                close       = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.close       ELSE ohlcv.close       END,
+                volume      = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN COALESCE(excluded.volume, ohlcv.volume)    ELSE ohlcv.volume      END,
+                vwap        = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN COALESCE(excluded.vwap, ohlcv.vwap)        ELSE ohlcv.vwap        END,
+                trade_count = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN COALESCE(excluded.trade_count, ohlcv.trade_count) ELSE ohlcv.trade_count END,
+                market_cap  = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN COALESCE(excluded.market_cap, ohlcv.market_cap)   ELSE ohlcv.market_cap  END,
+                source      = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.source      ELSE ohlcv.source      END,
+                ingested_at = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.ingested_at ELSE ohlcv.ingested_at END,
+                tick_1h     = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.tick_1h     ELSE ohlcv.tick_1h     END,
+                tick_1d     = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.tick_1d     ELSE ohlcv.tick_1d     END,
+                is_aggregated = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                     THEN excluded.is_aggregated ELSE ohlcv.is_aggregated END
             """,
             rows,
         )
