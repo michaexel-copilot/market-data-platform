@@ -488,6 +488,7 @@ def list_cache(symbol: str) -> list[dict]:
         reverse=True,
     )
     results = []
+    seen: set[tuple] = set()
     for f in files:
         try:
             data = json.loads(f.read_text())
@@ -495,8 +496,32 @@ def list_cache(symbol: str) -> list[dict]:
             continue
         if "_params" not in data:
             continue
+        bp = data.get("best_params", {})
+        p = data["_params"]
+        dedup_key = (
+            bp.get("ind1_type"), bp.get("ind1_period"),
+            bp.get("ind2_type"), bp.get("ind2_period"),
+            p.get("exposure"),
+            p.get("train_start"), p.get("train_end"), p.get("val_start"),
+        )
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        data["_filename"] = f.stem
         results.append(data)
     return results
+
+
+def delete_cache_file(filename: str) -> bool:
+    """Delete a single cache file by stem name (no path traversal)."""
+    safe_name = Path(filename).name
+    if not safe_name.endswith(".json"):
+        safe_name = safe_name + ".json"
+    p = BACKTEST_CACHE_DIR / safe_name
+    if p.exists():
+        p.unlink()
+        return True
+    return False
 
 
 def delete_cache(symbol: str, **kwargs) -> bool:

@@ -75,7 +75,14 @@
 
 <!-- Validation trade table -->
 {% if trades or op %}
-<div class="mb-2" style="font-size:0.82rem"><strong>Validation Trades</strong></div>
+<div class="mb-2 d-flex align-items-center gap-2" style="font-size:0.82rem">
+  <strong>Validation Trades</strong>
+  <button class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:0.75rem"
+    onclick="var el=document.getElementById('val-trades-collapse');el.classList.toggle('collapse');this.textContent=el.classList.contains('collapse')?'Show trades':'Hide trades';">
+    Show trades
+  </button>
+</div>
+<div id="val-trades-collapse" class="collapse">
 <div style="max-height:50vh; overflow-y:auto">
   <table class="table table-sm table-hover table-bordered" style="font-size:0.8rem">
     <thead class="table-dark sticky-top">
@@ -127,19 +134,30 @@
     </tbody>
   </table>
 </div>
+</div><!-- /#val-trades-collapse -->
 {% else %}
 <div class="text-muted fst-italic" style="font-size:0.85rem">No trades in validation period.</div>
 {% endif %}
-
-<!-- Clear Cache button -->
-<div class="mt-3">
-  <button
-    class="btn btn-sm btn-outline-secondary"
-    hx-delete="/asset/{{ symbol }}/backtest-cache?ind1_type={{ ind1_type }}&ind2_type={{ ind2_type }}&ind1_min={{ ind1_min }}&ind1_max={{ ind1_max }}&ind2_min={{ ind2_min }}&ind2_max={{ ind2_max }}&exposure={{ exposure }}&train_start={{ train_start }}&train_end={{ train_end }}&val_start={{ val_start }}"
-    hx-target="#backtest-results"
-    hx-swap="innerHTML"
-    hx-confirm="Clear cached backtest results?"
-  >
-    Clear Cache
-  </button>
-</div>
+{% if cache_filename %}
+<script>
+(function() {
+  var filename = {{ cache_filename | tojson }};
+  function doHighlight() {
+    var history = document.getElementById('backtest-history');
+    if (!history) return;
+    history.querySelectorAll('tr.table-warning').forEach(function(r) { r.classList.remove('table-warning'); });
+    var tr = history.querySelector('tr[data-filename="' + filename + '"]');
+    if (tr) {
+      tr.classList.add('table-warning');
+      tr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+  document.body.addEventListener('htmx:afterSwap', function handler(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'backtest-history') {
+      doHighlight();
+      document.body.removeEventListener('htmx:afterSwap', handler);
+    }
+  });
+})();
+</script>
+{% endif %}

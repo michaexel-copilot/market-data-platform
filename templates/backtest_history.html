@@ -1,17 +1,19 @@
 {% if results %}
-<div class="table-responsive mt-3">
+<h6 class="mt-3 mb-1 fw-semibold" style="font-size:0.85rem">Cached Backtests</h6>
+<div class="table-responsive">
   <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
     <thead class="table-dark">
       <tr>
-        <th>Train Start</th>
-        <th>Train End</th>
-        <th>Val Start</th>
-        <th>Ind 1</th>
-        <th>Ind 2</th>
-        <th>Exposure</th>
-        <th>Train Net P&amp;L</th>
-        <th>Val Net P&amp;L</th>
-        <th>Val Trades</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="str">Train Start</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="str">Train End</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="str">Val Start</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="str">Ind 1</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="str">Ind 2</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="str">Exposure</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="num">Train Net P&amp;L</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="num">Val Net P&amp;L</th>
+        <th onclick="sortTable(this)" style="cursor:pointer" data-col="num">Val Trades</th>
+        <th></th>
         <th></th>
       </tr>
     </thead>
@@ -27,7 +29,7 @@
         {% set ind1_label = bp.ind1_type | upper ~ "-" ~ bp.ind1_period %}
       {% endif %}
       {% set ind2_label = bp.ind2_type | upper ~ "-" ~ bp.ind2_period %}
-      <tr>
+      <tr data-filename="{{ r._filename }}">
         <td>{{ p.train_start }}</td>
         <td>{{ p.train_end }}</td>
         <td>{{ p.val_start }}</td>
@@ -54,8 +56,21 @@
             data-train-start="{{ p.train_start }}"
             data-train-end="{{ p.train_end }}"
             data-val-start="{{ p.val_start }}"
+            data-best-ind1-period="{{ bp.ind1_period or 1 }}"
+            data-best-ind2-period="{{ bp.ind2_period }}"
+            data-results-url="/asset/{{ symbol }}/backtest-cache/file/{{ r._filename }}/results"
             onclick="loadBacktestParams(this)"
           >Load</button>
+        </td>
+        <td>
+          <button
+            type="button"
+            class="btn btn-outline-danger py-0 px-1"
+            style="font-size:0.78rem"
+            hx-delete="/asset/{{ symbol }}/backtest-cache/file/{{ r._filename }}"
+            hx-target="closest tr"
+            hx-swap="delete"
+          >&#x2715;</button>
         </td>
       </tr>
       {% endfor %}
@@ -63,18 +78,48 @@
   </table>
 </div>
 {% else %}
-<p class="text-muted small mt-2">No cached backtest runs yet. Run a backtest to see results here.</p>
+<h6 class="mt-3 mb-1 fw-semibold" style="font-size:0.85rem">Cached Backtests</h6>
+<p class="text-muted small">No cached backtest runs yet. Run a backtest to see results here.</p>
 {% endif %}
 
 <script>
+function sortTable(th) {
+  var table = th.closest('table');
+  var tbody = table.querySelector('tbody');
+  var ths = Array.from(th.closest('tr').children);
+  var colIdx = ths.indexOf(th);
+  var isNum = th.dataset.col === 'num';
+  var asc = th.dataset.sortDir !== 'asc';
+  th.dataset.sortDir = asc ? 'asc' : 'desc';
+  // Clear indicators on all sortable headers
+  ths.forEach(function(h) {
+    if (h.dataset.col) h.textContent = h.textContent.replace(/ [▲▼]$/, '');
+    delete h.dataset.sortDir;
+  });
+  th.dataset.sortDir = asc ? 'asc' : 'desc';
+  th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (asc ? ' ▲' : ' ▼');
+  var rows = Array.from(tbody.querySelectorAll('tr'));
+  rows.sort(function(a, b) {
+    var av = (a.children[colIdx] || {}).textContent.trim();
+    var bv = (b.children[colIdx] || {}).textContent.trim();
+    if (isNum) {
+      av = parseFloat(av.replace(/[$,]/g, '')) || 0;
+      bv = parseFloat(bv.replace(/[$,]/g, '')) || 0;
+      return asc ? av - bv : bv - av;
+    }
+    return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  rows.forEach(function(r) { tbody.appendChild(r); });
+}
+
 function loadBacktestParams(btn) {
   var d = btn.dataset;
   document.getElementById('ind1-type').value  = d.ind1Type;
   document.getElementById('ind2-type').value  = d.ind2Type;
-  document.getElementById('ind1-min').value   = d.ind1Min;
-  document.getElementById('ind1-max').value   = d.ind1Max;
-  document.getElementById('ind2-min').value   = d.ind2Min;
-  document.getElementById('ind2-max').value   = d.ind2Max;
+  document.getElementById('ind1-min').value   = d.bestInd1Period;
+  document.getElementById('ind1-max').value   = d.bestInd1Period;
+  document.getElementById('ind2-min').value   = d.bestInd2Period;
+  document.getElementById('ind2-max').value   = d.bestInd2Period;
   document.getElementById('exposure').value   = d.exposure;
   document.getElementById('train-start').value = d.trainStart;
   document.getElementById('train-end').value   = d.trainEnd;
@@ -82,6 +127,9 @@ function loadBacktestParams(btn) {
   if (window.btTogglePeriod) {
     btTogglePeriod('ind1', d.ind1Type);
     btTogglePeriod('ind2', d.ind2Type);
+  }
+  if (d.resultsUrl) {
+    htmx.ajax('GET', d.resultsUrl, {target: '#backtest-results', swap: 'innerHTML'});
   }
 }
 </script>

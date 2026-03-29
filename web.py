@@ -26,7 +26,7 @@ from draw_chart import backtest_short_strategy, backtest_long_strategy, draw_cha
 from lists_db import add_item, get_lists, remove_item  # noqa: E402
 from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # noqa: E402
 from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
-from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache, list_cache  # noqa: E402
+from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache, delete_cache_file, list_cache, cache_path, BACKTEST_CACHE_DIR  # noqa: E402
 
 HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
@@ -420,16 +420,12 @@ async def asset_detail(
     sma: int = 7,
     sma_high: int = 7,
     pos: int = 100,
-    highlight: str | None = None,
     tab: str = "chart",
     resolution: str = "4h",
     network: str = "testnet",
     sl_short: int = 10,
     sl_long: int = 10,
-    hl_long: str | None = None,
-    strategy_tab: str = "short",
 ) -> HTMLResponse:
-    hl_long_int: int | None = int(hl_long) if hl_long not in (None, "") else None
     sym_upper = symbol.upper()
     asset = ASSET_BY_SYMBOL.get(sym_upper)
     cmc_symbol = asset["cmc_symbol"] if asset else sym_upper
@@ -437,44 +433,13 @@ async def asset_detail(
     info = fetch_cmc_info(cmc_symbol)
     cg   = fetch_cg_market(sym_upper)
 
-    # Compute candles + SMAs for backtest
     candles: list[dict] = []
     try:
-        candles, _, sma_high_vals, sma_low_vals = prepare_chart_data(sym_upper, sma, sma_high_period=sma_high)
-        raw_trades = backtest_short_strategy(candles, sma_low_vals, position_size_usd=float(pos), stop_loss_pct=sl_short / 100.0)
-        raw_long_trades = backtest_long_strategy(candles, sma_high_vals, position_size_usd=float(pos), stop_loss_pct=sl_long / 100.0)
+        candles, *_ = prepare_chart_data(sym_upper, sma, sma_high_period=sma_high)
     except Exception as exc:  # noqa: BLE001
-        print(f"[web] backtest failed for {sym_upper}: {exc}")
-        raw_trades = []
-        raw_long_trades = []
+        print(f"[web] chart data failed for {sym_upper}: {exc}")
 
-    # Resolve highlighted short trade (index-based)
-    highlight_trade: dict | None = None
-    if highlight and raw_trades:
-        try:
-            idx = int(highlight)
-            if 0 <= idx < len(raw_trades):
-                highlight_trade = raw_trades[idx]
-        except (ValueError, IndexError):
-            highlight_trade = next(
-                (t for t in raw_trades if t["entry_date"].strftime("%Y-%m-%d") == highlight),
-                None,
-            )
-
-    # Resolve highlighted long trade (index-based)
-    highlight_long_trade: dict | None = None
-    if hl_long_int is not None and raw_long_trades:
-        if 0 <= hl_long_int < len(raw_long_trades):
-            highlight_long_trade = raw_long_trades[hl_long_int]
-
-    if highlight_trade or highlight_long_trade:
-        chart_filename = _get_or_create_highlighted_chart(
-            sym_upper, sma, sma_high, sl_short, sl_long,
-            hl_short=highlight_trade,
-            hl_long=highlight_long_trade,
-        )
-    else:
-        chart_filename = _get_or_create_chart(sym_upper, sma, sma_high, sl_short, sl_long)
+    chart_filename = _get_or_create_chart(sym_upper, sma, sma_high, sl_short, sl_long)
 
     # Performance data for the accordion Performance panel
     import json as _json
@@ -516,46 +481,7 @@ async def asset_detail(
         "hl_symbol":    pair_meta.hl_symbol         if pair_meta else f"{sym_upper}/USDC:USDC",
     }
 
-    # Format trades for template (convert datetimes to strings)
     last_close = candles[-1]["close"] if candles else None
-    trades = [
-        {
-            "idx":                i,
-            "entry_date":         t["entry_date"].strftime("%Y-%m-%d"),
-            "entry_price":        t["entry_price"],
-            "exit_date":          t["exit_date"].strftime("%Y-%m-%d") if t["exit_date"] else None,
-            "exit_price":         t["exit_price"],
-            "pnl":                t["pnl"],
-            "is_open":            t["is_open"],
-            "max_adverse_pnl":    t.get("max_adverse_pnl"),
-            "max_favourable_pnl": t.get("max_favourable_pnl"),
-            "virtual_pnl":  (
-                (t["entry_price"] - last_close) / t["entry_price"] * float(pos)
-                if t["is_open"] and last_close is not None
-                else None
-            ),
-        }
-        for i, t in enumerate(raw_trades)
-    ]
-    long_trades = [
-        {
-            "idx":                i,
-            "entry_date":         t["entry_date"].strftime("%Y-%m-%d"),
-            "entry_price":        t["entry_price"],
-            "exit_date":          t["exit_date"].strftime("%Y-%m-%d") if t["exit_date"] else None,
-            "exit_price":         t["exit_price"],
-            "pnl":                t["pnl"],
-            "is_open":            t["is_open"],
-            "max_adverse_pnl":    t.get("max_adverse_pnl"),
-            "max_favourable_pnl": t.get("max_favourable_pnl"),
-            "virtual_pnl":  (
-                (last_close - t["entry_price"]) / t["entry_price"] * float(pos)
-                if t["is_open"] and last_close is not None
-                else None
-            ),
-        }
-        for i, t in enumerate(raw_long_trades)
-    ]
 
     # Compute out-of-sample validation for the currently selected parameters.
     oos_data, oos_cache_state = _get_or_compute_oos(sym_upper, sma, sma_high, sl_short, sl_long, pos)
@@ -574,13 +500,8 @@ async def asset_detail(
             "sma_period":        sma,
             "sma_high":          sma_high,
             "pos_usd":           pos,
-            "trades":         trades,
-            "long_trades":    long_trades,
-            "highlight":      highlight,
-            "hl_long":        hl_long_int,
             "sl_short":       sl_short,
             "sl_long":        sl_long,
-            "strategy_tab":   strategy_tab,
             "tab":               tab,
             "perf_rows":         perf_rows,
             "candles_4h_json":   candles_4h_json,
@@ -694,6 +615,43 @@ async def backtest_history(request: Request, symbol: str) -> HTMLResponse:
     )
 
 
+@app.get("/asset/{symbol}/backtest-cache/file/{filename}/results", response_class=HTMLResponse)
+async def backtest_cache_file_results(request: Request, symbol: str, filename: str) -> HTMLResponse:
+    safe_name = Path(filename).name
+    if not safe_name.endswith(".json"):
+        safe_name = safe_name + ".json"
+    p = BACKTEST_CACHE_DIR / safe_name
+    if not p.exists():
+        return HTMLResponse(
+            '<div class="alert alert-warning mt-2">Cached result not found. It may have been deleted.</div>'
+        )
+    try:
+        result = _json.loads(p.read_text())
+    except Exception:  # noqa: BLE001
+        return HTMLResponse(
+            '<div class="alert alert-danger mt-2">Failed to load cached result.</div>'
+        )
+    params = result.get("_params", {})
+    return TEMPLATES.TemplateResponse(
+        "backtest_results.html",
+        {
+            "request":    request,
+            "symbol":     symbol.upper(),
+            "result":     result,
+            "ind1_type":  params.get("ind1_type", "price"),
+            "ind2_type":  params.get("ind2_type", "sma"),
+            "ind1_min":   params.get("ind1_min", 1),
+            "ind1_max":   params.get("ind1_max", 200),
+            "ind2_min":   params.get("ind2_min", 1),
+            "ind2_max":   params.get("ind2_max", 200),
+            "exposure":   params.get("exposure", "long_cash"),
+            "train_start": params.get("train_start", ""),
+            "train_end":  params.get("train_end", ""),
+            "val_start":  params.get("val_start", ""),
+        },
+    )
+
+
 @app.post("/asset/{symbol}/backtest", response_class=HTMLResponse)
 async def run_backtest(
     request: Request,
@@ -717,11 +675,13 @@ async def run_backtest(
         exposure=exposure, train_start=train_start, train_end=train_end, val_start=val_start,
     )
     cached = load_cache(sym_upper, **cache_kwargs)
+    cache_filename: str = ""
     if cached is not None:
         result = cached
         # Re-save legacy cache files that are missing _params so they appear in history
         if "_params" not in result:
             save_cache(sym_upper, result, **cache_kwargs)
+        cache_filename = cache_path(sym_upper, **cache_kwargs).stem
     else:
         try:
             source_key, multiplier = resolve_source_key(sym_upper)
@@ -756,6 +716,7 @@ async def run_backtest(
             "train_start": train_start,
             "train_end":  train_end,
             "val_start":  val_start,
+            "cache_filename": cache_filename,
         },
     )
 
@@ -781,6 +742,17 @@ async def delete_backtest_cache(
         ind2_min=ind2_min, ind2_max=ind2_max,
         exposure=exposure, train_start=train_start, train_end=train_end, val_start=val_start,
     )
+    if deleted:
+        return JSONResponse({"ok": True})
+    return JSONResponse({"ok": False, "error": "No cache found"}, status_code=404)
+
+
+@app.delete("/asset/{symbol}/backtest-cache/file/{filename}")
+async def delete_backtest_cache_file(
+    symbol: str,
+    filename: str,
+) -> JSONResponse:
+    deleted = delete_cache_file(filename)
     if deleted:
         return JSONResponse({"ok": True})
     return JSONResponse({"ok": False, "error": "No cache found"}, status_code=404)

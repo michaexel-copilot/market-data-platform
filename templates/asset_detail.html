@@ -5,7 +5,6 @@
     <small class="text-muted fs-5">({{ symbol }})</small>
   </h2>
 </div>
-<input type="hidden" id="strategy-tab-input" name="strategy_tab" value="{{ strategy_tab }}">
 <input type="hidden" id="resolution-input" name="resolution" value="{{ chart_resolution }}">
 
 <div class="accordion" id="detail-accordion">
@@ -231,9 +230,6 @@
     hx-swap="innerHTML"
   ></div>
 
-  <!-- Hidden inputs kept for backward-compat with trade-table hx-include refs -->
-  <input type="hidden" id="hl-short-input" name="highlight" value="{{ highlight if highlight else '' }}">
-  <input type="hidden" id="hl-long-input"  name="hl_long"   value="{{ hl_long if hl_long is not none else '' }}">
 
   <script>
   (function () {
@@ -246,106 +242,6 @@
   })();
   </script>
 
-      </div>
-    </div>
-  </div>
-  <div class="accordion-item">
-    <h2 class="accordion-header" id="heading-trades">
-      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-trades" aria-expanded="false" aria-controls="collapse-trades">
-        Chart &amp; Trades: Trades Table
-      </button>
-    </h2>
-    <div id="collapse-trades" class="accordion-collapse collapse" aria-labelledby="heading-trades">
-      <div class="accordion-body">
-    <!-- Unified trade table (short + long, sorted by entry date desc) -->
-    {% set all_trades = [] %}
-    {% for t in trades %}
-      {% set _ = all_trades.append({"dir": "short", "trade": t}) %}
-    {% endfor %}
-    {% for t in long_trades %}
-      {% set _ = all_trades.append({"dir": "long", "trade": t}) %}
-    {% endfor %}
-    {% set all_trades = all_trades | sort(attribute="trade.entry_date", reverse=True) %}
-    {% if all_trades %}
-    <div style="max-height:70vh; overflow-y:auto">
-    <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
-      <thead class="table-dark sticky-top">
-        <tr>
-          <th>Dir</th>
-          <th>#</th>
-          <th>Entry Date</th>
-          <th>Entry $</th>
-          <th>Exit Date</th>
-          <th>Exit $</th>
-          <th>P&amp;L</th>
-          <th title="Max adverse excursion for profit trades; max favourable for loss trades. ✓ = never underwater.">Max &Delta; P&amp;L</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% set row_num = namespace(value=0) %}
-        {% for item in all_trades %}
-        {% set trade = item.trade %}
-        {% set dir = item.dir %}
-        {% set row_bg = "#ffe8e8" if dir == "short" else "#e8f5e8" %}
-        {% set row_num.value = row_num.value + 1 %}
-        {% set is_highlighted = (dir == "short" and (highlight == trade.entry_date or highlight == trade.idx | string)) or (dir == "long" and hl_long == trade.idx) %}
-        <tr
-          style="cursor:pointer"
-          {% if is_highlighted %}class="table-primary"{% endif %}
-          hx-get="/asset/{{ symbol }}"
-          hx-target="#detail-pane"
-          hx-swap="innerHTML"
-          hx-include="#sma-input, #pos-input, #sma-high-input, #sl-short-input, #sl-long-input"
-          {% if dir == "short" %}
-          hx-vals='{"highlight": "{{ trade.idx }}", "hl_long": ""}'
-          {% else %}
-          hx-vals='{"hl_long": {{ trade.idx }}, "highlight": ""}'
-          {% endif %}
-        >
-          <td style="background-color:{{ row_bg }}">{{ ("&#9660;" if dir == "short" else "&#9650;") | safe }}</td>
-          <td style="background-color:{{ row_bg }}">{{ row_num.value }}</td>
-          <td style="background-color:{{ row_bg }}">{{ trade.entry_date }}</td>
-          <td style="background-color:{{ row_bg }}">${{ "%.2f" | format(trade.entry_price) }}</td>
-          <td style="background-color:{{ row_bg }}">{{ trade.exit_date if trade.exit_date else "\u2014" }}</td>
-          <td style="background-color:{{ row_bg }}">{{ ("$%.2f" | format(trade.exit_price)) if trade.exit_price else "\u2014" }}</td>
-          <td class="
-            {%- if trade.is_open -%}text-primary fw-semibold
-            {%- elif trade.pnl is not none -%}
-              {%- if trade.pnl >= 0 -%}text-success fw-semibold{%- else -%}text-danger fw-semibold{%- endif -%}
-            {%- endif -%}">
-            {%- if trade.is_open -%}
-              {%- if trade.virtual_pnl is not none -%}~{{ "%+.2f" | format(trade.virtual_pnl) }}{%- else -%}&mdash;{%- endif -%}
-            {%- elif trade.pnl is not none -%}
-              {{ "%+.2f" | format(trade.pnl) }}
-            {%- else -%}&mdash;{%- endif -%}
-          </td>
-          <td class="
-            {%- if trade.is_open -%}text-muted
-            {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
-              {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}text-danger{%- else -%}text-success{%- endif -%}
-            {%- elif trade.pnl is not none and trade.pnl < 0 -%}
-              {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}text-success{%- else -%}text-muted{%- endif -%}
-            {%- endif -%}">
-            {%- if trade.is_open -%}
-              &mdash;
-            {%- elif trade.pnl is not none and trade.pnl >= 0 -%}
-              {%- if trade.max_adverse_pnl is not none and trade.max_adverse_pnl < 0 -%}
-                {{ "%+.2f" | format(trade.max_adverse_pnl) }}
-              {%- else -%}&#10003;{%- endif -%}
-            {%- elif trade.pnl is not none and trade.pnl < 0 -%}
-              {%- if trade.max_favourable_pnl is not none and trade.max_favourable_pnl > 0 -%}
-                {{ "%+.2f" | format(trade.max_favourable_pnl) }}
-              {%- else -%}&mdash;{%- endif -%}
-            {%- else -%}&mdash;{%- endif -%}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    {% else %}
-    <p class="text-muted small mt-2">No trade signals in the last 12 months.</p>
-    {% endif %}
       </div>
     </div>
   </div>
