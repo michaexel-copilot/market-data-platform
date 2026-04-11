@@ -38,6 +38,7 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             r.market_cap,
             r.source,
             now,
+            int(r.ts.timestamp()) // 60 if str(r.interval) == "1m" else None,
             int(r.ts.timestamp()) // 3600 if str(r.interval) == "1h" else None,
             int(r.ts.timestamp()) // 86400 if str(r.interval) == "1d" else None,
             r.is_aggregated,
@@ -50,8 +51,8 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             INSERT INTO ohlcv
                 (instrument_id, interval, ts, open, high, low, close,
                  volume, vwap, trade_count, market_cap, source, ingested_at,
-                 tick_1h, tick_1d, is_aggregated)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 tick_1m, tick_1h, tick_1d, is_aggregated)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (instrument_id, interval, ts) DO UPDATE SET
                 open        = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
                                    THEN excluded.open        ELSE ohlcv.open        END,
@@ -73,6 +74,8 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
                                    THEN excluded.source      ELSE ohlcv.source      END,
                 ingested_at = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
                                    THEN excluded.ingested_at ELSE ohlcv.ingested_at END,
+                tick_1m     = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
+                                   THEN excluded.tick_1m     ELSE ohlcv.tick_1m     END,
                 tick_1h     = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE
                                    THEN excluded.tick_1h     ELSE ohlcv.tick_1h     END,
                 tick_1d     = CASE WHEN excluded.is_aggregated = FALSE OR ohlcv.is_aggregated = TRUE

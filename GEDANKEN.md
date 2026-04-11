@@ -17,7 +17,7 @@ initialize the database specified in the project. Store it on the correct place 
 
 ## Workflow
 
-[x] /ospx-propose add-import-script-for-static-data-from-coinmarketcap
+[x] /opsx-propose add-import-script-for-static-data-from-coinmarketcap
 
 ## Description
 
@@ -37,8 +37,8 @@ write a documentation for this importer
 ## Definition of Done
 
 Alle Workflow Schritte durchlaufen:
-[x] /ospx-apply
-[ ] /ospx-archive add-import-script-for-static-data-from-coinmarketcap
+[x] /opsx-apply
+[ ] /opsx-archive add-import-script-for-static-data-from-coinmarketcap
 
 [ ] git commit durchgeführt
 

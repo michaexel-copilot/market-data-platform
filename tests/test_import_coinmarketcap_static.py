@@ -376,7 +376,7 @@ def _seed_for_migrate(conn) -> None:
     """Seed the minimal data needed to run migrate_fundamentals."""
     # data_source entry required by migrate_fundamentals
     conn.execute("""
-        INSERT INTO data_source (data_source_id, short_name, display_name, url)
+        INSERT INTO data_source (data_source_id, short_name, name, base_url)
         VALUES (1, 'cmc', 'CoinMarketCap', 'https://coinmarketcap.com')
         ON CONFLICT (data_source_id) DO NOTHING
     """)

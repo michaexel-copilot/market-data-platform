@@ -26,7 +26,9 @@ from market_data.models.enums import AssetClass, Interval
 
 logger = logging.getLogger(__name__)
 
-_SKIP_MODULES = {"__init__", "protocol", "base", "rate_limiter"}
+# Alpha Vantage is intentionally excluded from auto-registration so no runtime
+# ingestion job or manual update path will fetch from alphavantage.co.
+_SKIP_MODULES = {"__init__", "protocol", "base", "rate_limiter", "alpha_vantage"}
 
 
 class ConnectorRegistry:

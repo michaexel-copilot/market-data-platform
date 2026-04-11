@@ -1,7 +1,11 @@
 """REST instruments router."""
 from __future__ import annotations
 
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from market_data.db.connection import get_connection
 from market_data.ingestion.hyperliquid import get_hl_metadata_for_instruments
@@ -11,7 +15,7 @@ from market_data.models.api import (
     PaginatedResponse,
     SymbolNotFoundError,
 )
-from market_data.models.enums import AssetClass
+from market_data.models.enums import AssetClass, Interval
 from market_data.models.fundamentals import FundamentalsRecord
 from market_data.models.instrument import InstrumentRecord
 
@@ -19,6 +23,22 @@ router = APIRouter(prefix="/v1/instruments", tags=["instruments"])
 
 _VALID_TRADEABLE_ON = {"hyperliquid"}
 _VALID_NETWORKS = {"mainnet", "testnet"}
+_NATIVE_OHLCV_INTERVALS = ("1m", "5m", "1h", "1d")
+_INTERVAL_ENUM_MAP = {
+    "1m": Interval.ONE_MIN,
+    "5m": Interval.FIVE_MIN,
+    "1h": Interval.ONE_HOUR,
+    "1d": Interval.ONE_DAY,
+}
+_AGGREGATION_SOURCE_PREFERENCE = {
+    "5m": ("1m",),
+    "1h": ("5m", "1m"),
+    "1d": ("1h", "5m", "1m"),
+}
+
+
+class OhlcvAutoUpdateRequest(BaseModel):
+    auto_update: bool
 
 
 def _parse_instrument_row(row: tuple) -> dict:
@@ -28,6 +48,94 @@ def _parse_instrument_row(row: tuple) -> dict:
         "is_active", "logo_url", "website_url", "first_seen_at", "last_updated_at",
     ]
     return dict(zip(keys, row))
+
+
+def _validate_native_interval(interval: str) -> str:
+    if interval not in _NATIVE_OHLCV_INTERVALS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported interval {interval!r}. Supported: {list(_NATIVE_OHLCV_INTERVALS)}",
+        )
+    return interval
+
+
+def _load_ohlcv_update_settings(conn, instrument_id: str) -> dict[str, dict[str, bool]]:
+    settings = {iv: {"auto_update": False} for iv in _NATIVE_OHLCV_INTERVALS}
+    rows = conn.execute(
+        "SELECT interval, auto_update FROM ohlcv_update_settings WHERE instrument_id = %s",
+        [instrument_id],
+    ).fetchall()
+    for interval, auto_update in rows:
+        if interval in settings:
+            settings[interval] = {"auto_update": bool(auto_update)}
+    return settings
+
+
+def _bucket_start(ts: datetime, interval: str) -> datetime:
+    ts = ts.astimezone(timezone.utc)
+    if interval == "5m":
+        return ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
+    if interval == "1h":
+        return ts.replace(minute=0, second=0, microsecond=0)
+    if interval == "1d":
+        return ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    return ts.replace(second=0, microsecond=0)
+
+
+def _aggregate_rows_to_interval(
+    instrument_id: str,
+    source_interval: str,
+    target_interval: str,
+    rows: list[tuple],
+):
+    from market_data.models.ohlcv import OHLCVRecord
+
+    buckets: defaultdict[datetime, list[tuple]] = defaultdict(list)
+    for row in rows:
+        ts = row[0]
+        buckets[_bucket_start(ts, target_interval)].append(row)
+
+    records: list[OHLCVRecord] = []
+    for bucket_ts, candles in sorted(buckets.items()):
+        ordered = sorted(candles, key=lambda row: row[0])
+        has_volume = any(row[5] is not None for row in ordered)
+        volume_total = sum(float(row[5] or 0.0) for row in ordered)
+        records.append(
+            OHLCVRecord(
+                instrument_id=instrument_id,
+                interval=_INTERVAL_ENUM_MAP[target_interval],
+                ts=bucket_ts,
+                open=float(ordered[0][1]),
+                high=max(float(row[2]) for row in ordered),
+                low=min(float(row[3]) for row in ordered),
+                close=float(ordered[-1][4]),
+                volume=volume_total if has_volume else None,
+                source=f"aggregated:{source_interval}",
+                is_aggregated=True,
+            )
+        )
+    return records
+
+
+def _find_aggregation_source(conn, instrument_id: str, target_interval: str) -> tuple[str | None, datetime | None, datetime | None]:
+    target_row = conn.execute(
+        "SELECT MAX(ts) FROM ohlcv WHERE instrument_id = %s AND interval = %s",
+        [instrument_id, target_interval],
+    ).fetchone()
+    target_last_ts = target_row[0] if target_row else None
+
+    for candidate in _AGGREGATION_SOURCE_PREFERENCE[target_interval]:
+        row = conn.execute(
+            "SELECT MAX(ts) FROM ohlcv WHERE instrument_id = %s AND interval = %s",
+            [instrument_id, candidate],
+        ).fetchone()
+        candidate_last_ts = row[0] if row else None
+        if candidate_last_ts is None:
+            continue
+        if target_last_ts is None or candidate_last_ts > target_last_ts:
+            return candidate, target_last_ts, candidate_last_ts
+
+    return None, target_last_ts, None
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -225,7 +333,7 @@ async def get_ohlcv_availability(symbol: str) -> dict:
     ).fetchone():
         raise SymbolNotFoundError(symbol)
 
-    intervals: dict[str, dict] = {}
+    intervals: dict[str, dict] = {"1m": {"first": None, "last": None}}
 
     # ── Native intervals from ohlcv ──────────────────────────────────────
     rows = conn.execute(
@@ -343,3 +451,143 @@ async def get_ohlcv_data_available(symbol: str) -> dict:
         }
 
     return {"instrument_id": instrument_id, "sources": sources}
+
+
+@router.get("/{symbol}/ohlcv-update-settings")
+async def get_ohlcv_update_settings(symbol: str) -> dict:
+    """Return persisted per-interval auto-update settings for an instrument."""
+    from market_data.db.resolver import resolve_symbol
+
+    instrument_id = resolve_symbol(symbol)
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM instruments WHERE instrument_id = %s",
+        [instrument_id],
+    ).fetchone():
+        raise SymbolNotFoundError(symbol)
+
+    return {
+        "instrument_id": instrument_id,
+        "intervals": _load_ohlcv_update_settings(conn, instrument_id),
+    }
+
+
+@router.put("/{symbol}/ohlcv-update-settings/{interval}")
+async def put_ohlcv_update_setting(symbol: str, interval: str, req: OhlcvAutoUpdateRequest) -> dict:
+    """Upsert the per-interval auto-update flag for an instrument."""
+    from market_data.db.resolver import resolve_symbol
+
+    interval = _validate_native_interval(interval)
+    instrument_id = resolve_symbol(symbol)
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM instruments WHERE instrument_id = %s",
+        [instrument_id],
+    ).fetchone():
+        raise SymbolNotFoundError(symbol)
+
+    conn.execute(
+        """
+        INSERT INTO ohlcv_update_settings (instrument_id, interval, auto_update)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (instrument_id, interval)
+        DO UPDATE SET auto_update = excluded.auto_update
+        """,
+        [instrument_id, interval, req.auto_update],
+    )
+    return {
+        "instrument_id": instrument_id,
+        "interval": interval,
+        "auto_update": req.auto_update,
+    }
+
+
+@router.post("/{symbol}/update-ohlcv/{interval}")
+async def update_ohlcv_for_interval(symbol: str, interval: str) -> dict:
+    """Update a single OHLCV interval for an instrument.
+
+    - ``1m`` fetches fresh candles from Binance.
+    - ``5m``/``1h``/``1d`` aggregate from the best available lower interval already
+      stored in the database.
+    """
+    from market_data.connectors.binance import BinanceConnector
+    from market_data.db.resolver import resolve_symbol
+    from market_data.ingestion.writer import write_ohlcv
+
+    interval = _validate_native_interval(interval)
+    instrument_id = resolve_symbol(symbol)
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM instruments WHERE instrument_id = %s",
+        [instrument_id],
+    ).fetchone():
+        raise SymbolNotFoundError(symbol)
+
+    now = datetime.now(tz=timezone.utc)
+
+    if interval == "1m":
+        row = conn.execute(
+            "SELECT MAX(ts) FROM ohlcv WHERE instrument_id = %s AND interval = '1m'",
+            [instrument_id],
+        ).fetchone()
+        last_ts = row[0] if row else None
+        since = (last_ts + timedelta(minutes=1)) if last_ts is not None else (now - timedelta(hours=24))
+        if since >= now:
+            since = now - timedelta(minutes=1)
+
+        try:
+            records = await BinanceConnector().fetch_ohlcv(
+                instrument_id,
+                Interval.ONE_MIN,
+                since=since,
+                until=now,
+            )
+            written = write_ohlcv(records)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Binance 1m update failed: {exc}") from exc
+
+        return {
+            "instrument_id": instrument_id,
+            "interval": interval,
+            "source_interval": "binance",
+            "written": written,
+            "message": (
+                f"Updated 1m OHLCV from Binance ({written} row(s) written)."
+                if written > 0 else
+                "No new 1m OHLCV rows were returned from Binance."
+            ),
+        }
+
+    source_interval, target_last_ts, _source_last_ts = _find_aggregation_source(conn, instrument_id, interval)
+    if source_interval is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"No newer lower-resolution OHLCV data is available to build {interval} candles for "
+                f"{instrument_id!r}. Update 1m first and then retry."
+            ),
+        )
+
+    params: list = [instrument_id, source_interval]
+    query = (
+        "SELECT ts, open, high, low, close, volume "
+        "FROM ohlcv WHERE instrument_id = %s AND interval = %s"
+    )
+    if target_last_ts is not None:
+        query += " AND ts >= %s"
+        params.append(_bucket_start(target_last_ts, interval))
+    query += " ORDER BY ts"
+
+    rows = conn.execute(query, params).fetchall()
+    records = _aggregate_rows_to_interval(instrument_id, source_interval, interval, rows)
+    written = write_ohlcv(records)
+    return {
+        "instrument_id": instrument_id,
+        "interval": interval,
+        "source_interval": source_interval,
+        "written": written,
+        "message": (
+            f"Updated {interval} OHLCV by aggregating newer {source_interval} data "
+            f"({written} row(s) written)."
+        ),
+    }

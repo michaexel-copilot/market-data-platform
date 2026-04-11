@@ -115,6 +115,14 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #PANE_FUNDAMENTALS .ohlcv-range-table th { padding: 6px 12px; font-size: 0.8rem; font-weight: 700; text-align: left; background: #f5f5f5; border-bottom: 2px solid #e0e0e0; }
     #PANE_FUNDAMENTALS .ohlcv-range-table td { width: auto; font-weight: normal; color: inherit; font-family: monospace; font-size: 0.83rem; }
     #PANE_FUNDAMENTALS .ohlcv-range-table td:first-child { font-weight: 700; color: #333; width: 60px; font-family: inherit; }
+    #PANE_FUNDAMENTALS .ohlcv-actions { display: flex; align-items: center; gap: 10px; font-family: inherit; }
+    #PANE_FUNDAMENTALS .btn-interval-update {
+      padding: 4px 10px; background: #0f9d58; color: #fff;
+      border: none; border-radius: 4px; cursor: pointer; font-size: 0.78rem;
+    }
+    #PANE_FUNDAMENTALS .btn-interval-update:disabled { background: #bbb; cursor: not-allowed; }
+    #PANE_FUNDAMENTALS .auto-toggle { display: inline-flex; align-items: center; gap: 4px; font-family: inherit; font-size: 0.8rem; color: #555; }
+    #PANE_FUNDAMENTALS .auto-toggle input { margin: 0; }
     #PANE_FUNDAMENTALS .avail-table th { padding: 6px 12px; font-size: 0.8rem; font-weight: 700; text-align: center; background: #f5f5f5; border-bottom: 2px solid #e0e0e0; }
     #PANE_FUNDAMENTALS .avail-table th:first-child { text-align: left; }
     #PANE_FUNDAMENTALS .avail-table td { text-align: center; width: auto; font-weight: normal; color: inherit; }
@@ -326,6 +334,7 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   const btnOhlcv          = document.getElementById('BTN_UPDATE_OHLCV');
   const btnKrakenImport   = document.getElementById('BTN_IMPORT_KRAKEN_1H');
   const btnMigrate        = document.getElementById('BTN_MIGRATE_FUNDAMENTALS');
+  const OHLCV_ROW_UPDATE_INTERVALS = new Set(['1m', '5m', '1h', '1d']);
 
   // ── Asset-class selector ──
   segButtons.forEach(btn => {
@@ -432,14 +441,122 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     loadKrakenStatus(inst.ticker);
   }
 
+  function _formatOhlcvTs(value) {
+    return value ? value.slice(0, 16).replace('T', ' ') : '—';
+  }
+
+  function _isIntervalStale(interval, lastTs) {
+    if (!lastTs) return true;
+    const last = new Date(lastTs);
+    if (Number.isNaN(last.getTime())) return true;
+    const now = new Date();
+    if (interval === '1m') return last.getTime() < (now.getTime() - 60 * 1000);
+    if (interval === '5m') return last.getTime() < (now.getTime() - 5 * 60 * 1000);
+    if (interval === '1h') return last.getTime() < (now.getTime() - 60 * 60 * 1000);
+    if (interval === '1d') {
+      const todayStartUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      return last.getTime() < todayStartUtc;
+    }
+    return false;
+  }
+
+  function _renderOhlcvActions(instrumentId, interval, details, settings) {
+    if (!OHLCV_ROW_UPDATE_INTERVALS.has(interval)) return '<span style="color:#999">—</span>';
+    const autoUpdate = Boolean(settings?.[interval]?.auto_update);
+    const stale = _isIntervalStale(interval, details?.last || null);
+    const disableAttr = (!details?.last || stale) ? '' : ' disabled';
+    const hiddenAttr = autoUpdate ? ' style="display:none"' : '';
+    return `<div class="ohlcv-actions">` +
+      `<button class="btn-interval-update" data-instrument-id="${escHtml(instrumentId)}" data-interval="${escHtml(interval)}"${disableAttr}${hiddenAttr}>Update</button>` +
+      `<label class="auto-toggle"><input class="chk-interval-auto" type="checkbox" data-instrument-id="${escHtml(instrumentId)}" data-interval="${escHtml(interval)}"${autoUpdate ? ' checked' : ''}> <span>Auto</span></label>` +
+      `</div>`;
+  }
+
+  function _renderOhlcvRangeTable(instrumentId, intervals, settings) {
+    const ivEntries = Object.entries(intervals || {});
+    if (ivEntries.length === 0) {
+      return '<p style="color:#999;font-size:0.85rem">No OHLCV data available.</p>';
+    }
+    const ivOrder = ['1m','5m','1h','1d','1w','4w','1mth','1y','1ytd'];
+    ivEntries.sort(([a], [b]) => {
+      const ai = ivOrder.indexOf(a), bi = ivOrder.indexOf(b);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+    const ivRows = ivEntries.map(([iv, details]) =>
+      `<tr><td>${escHtml(iv)}</td><td>${escHtml(_formatOhlcvTs(details?.first || null))}</td><td>${escHtml(_formatOhlcvTs(details?.last || null))}</td><td>${_renderOhlcvActions(instrumentId, iv, details || {}, settings || {})}</td></tr>`
+    ).join('');
+    return `<table class="ohlcv-range-table"><thead><tr><th>Interval</th><th>First</th><th>Last</th><th>Actions</th></tr></thead><tbody>${ivRows}</tbody></table>`;
+  }
+
+  function _wireOhlcvRowControls() {
+    fundamentalsPane.querySelectorAll('.btn-interval-update').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const instrumentId = btn.dataset.instrumentId;
+        const interval = btn.dataset.interval;
+        if (!instrumentId || !interval) return;
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Updating…';
+        try {
+          const res = await fetch(`/v1/instruments/${encodeURIComponent(instrumentId)}/update-ohlcv/${encodeURIComponent(interval)}`, {
+            method: 'POST',
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            _prependOhlcvMessage(`<p class="error">${escHtml(interval)} update failed: ${escHtml(data.detail || 'HTTP ' + res.status)}</p>`);
+            return;
+          }
+          _prependOhlcvMessage(`<p class="import-ok">${escHtml(data.message || `${interval} updated.`)}</p>`);
+          await _refreshOhlcvSections(instrumentId);
+        } catch (e) {
+          _prependOhlcvMessage(`<p class="error">${escHtml(interval)} update failed: ${escHtml(e.message)}</p>`);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
+    });
+
+    fundamentalsPane.querySelectorAll('.chk-interval-auto').forEach(input => {
+      input.addEventListener('change', async () => {
+        const instrumentId = input.dataset.instrumentId;
+        const interval = input.dataset.interval;
+        const nextValue = input.checked;
+        if (!instrumentId || !interval) return;
+        input.disabled = true;
+        try {
+          const res = await fetch(`/v1/instruments/${encodeURIComponent(instrumentId)}/ohlcv-update-settings/${encodeURIComponent(interval)}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({auto_update: nextValue}),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            input.checked = !nextValue;
+            _prependOhlcvMessage(`<p class="error">${escHtml(interval)} auto-update change failed: ${escHtml(data.detail || 'HTTP ' + res.status)}</p>`);
+            return;
+          }
+          _prependOhlcvMessage(`<p class="import-ok">${escHtml(interval)} auto-update ${data.auto_update ? 'enabled' : 'disabled'}.</p>`);
+          await _refreshOhlcvSections(instrumentId);
+        } catch (e) {
+          input.checked = !nextValue;
+          _prependOhlcvMessage(`<p class="error">${escHtml(interval)} auto-update change failed: ${escHtml(e.message)}</p>`);
+        } finally {
+          input.disabled = false;
+        }
+      });
+    });
+  }
+
   // ── Load fundamentals ──
   async function loadFundamentals(instrumentId, ticker, fullName) {
     fundamentalsPane.innerHTML = '<p class="placeholder">Loading…</p>';
     try {
-      const [fundRes, availRes, matrixRes] = await Promise.all([
+      const [fundRes, availRes, matrixRes, settingsRes] = await Promise.all([
         fetch(`/v1/instruments/${instrumentId}/fundamentals`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-availability`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-data-available`),
+        fetch(`/v1/instruments/${instrumentId}/ohlcv-update-settings`),
       ]);
       if (!fundRes.ok) {
         fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals (HTTP ${fundRes.status})</p>`;
@@ -455,26 +572,13 @@ _CONSOLE_HTML = """<!DOCTYPE html>
         ? `<tr><td>Launch Date</td><td>${escHtml(String(data.launch_date))}</td></tr>`
         : '';
 
-      // OHLCV time range section
       let ohlcvRangeHtml = '<p style="color:#999;font-size:0.85rem">No OHLCV data available.</p>';
       if (availRes.ok) {
         const availData = await availRes.json();
-        const ivEntries = Object.entries(availData.intervals || {});
-        if (ivEntries.length > 0) {
-          const ivOrder = ['1m','5m','1h','1d','1w','4w','1mth','1y','1ytd'];
-          ivEntries.sort(([a], [b]) => {
-            const ai = ivOrder.indexOf(a), bi = ivOrder.indexOf(b);
-            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-          });
-          const fmtTs = t => t ? t.slice(0,16).replace('T',' ') : '—';
-          const ivRows = ivEntries.map(([iv, {first, last}]) =>
-            `<tr><td>${escHtml(iv)}</td><td>${escHtml(fmtTs(first))}</td><td>${escHtml(fmtTs(last))}</td></tr>`
-          ).join('');
-          ohlcvRangeHtml = `<table class="ohlcv-range-table"><thead><tr><th>Interval</th><th>First</th><th>Last</th></tr></thead><tbody>${ivRows}</tbody></table>`;
-        }
+        const settingsData = settingsRes.ok ? await settingsRes.json() : {intervals: {}};
+        ohlcvRangeHtml = _renderOhlcvRangeTable(instrumentId, availData.intervals || {}, settingsData.intervals || {});
       }
 
-      // OHLCV data available matrix section
       let ohlcvMatrixHtml = '';
       if (matrixRes.ok) {
         const matrixData = await matrixRes.json();
@@ -497,6 +601,7 @@ _CONSOLE_HTML = """<!DOCTYPE html>
         `<h2>${title}</h2><table>${rows}${launchDateRow}</table>` +
         `<div class="ohlcv-range-section"><h3>OHLCV Time Range</h3>${ohlcvRangeHtml}</div>` +
         (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '');
+      _wireOhlcvRowControls();
     } catch (e) {
       fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals: ${escHtml(e.message)}</p>`;
     }
@@ -627,28 +732,18 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   // Re-fetch and re-render only the OHLCV sections (range + matrix)
   async function _refreshOhlcvSections(instrumentId) {
     try {
-      const [availRes, matrixRes] = await Promise.all([
+      const [availRes, matrixRes, settingsRes] = await Promise.all([
         fetch(`/v1/instruments/${instrumentId}/ohlcv-availability`),
         fetch(`/v1/instruments/${instrumentId}/ohlcv-data-available`),
+        fetch(`/v1/instruments/${instrumentId}/ohlcv-update-settings`),
       ]);
-      // Replace OHLCV Time Range section
       const rangeEl = fundamentalsPane.querySelector('.ohlcv-range-section');
       const matrixEl = fundamentalsPane.querySelector('.ohlcv-matrix-section');
       if (rangeEl && availRes.ok) {
         const availData = await availRes.json();
-        const ivEntries = Object.entries(availData.intervals || {});
-        if (ivEntries.length > 0) {
-          const ivOrder = ['1m','5m','1h','1d','1w','4w','1mth','1y','1ytd'];
-          ivEntries.sort(([a],[b]) => {
-            const ai = ivOrder.indexOf(a), bi = ivOrder.indexOf(b);
-            return (ai===-1?999:ai)-(bi===-1?999:bi);
-          });
-          const fmtTs = t => t ? t.slice(0,16).replace('T',' ') : '—';
-          const ivRows = ivEntries.map(([iv,{first,last}]) =>
-            `<tr><td>${escHtml(iv)}</td><td>${escHtml(fmtTs(first))}</td><td>${escHtml(fmtTs(last))}</td></tr>`
-          ).join('');
-          rangeEl.innerHTML = `<h3>OHLCV Time Range</h3><table class="ohlcv-range-table"><thead><tr><th>Interval</th><th>First</th><th>Last</th></tr></thead><tbody>${ivRows}</tbody></table>`;
-        }
+        const settingsData = settingsRes.ok ? await settingsRes.json() : {intervals: {}};
+        rangeEl.innerHTML = `<h3>OHLCV Time Range</h3>${_renderOhlcvRangeTable(instrumentId, availData.intervals || {}, settingsData.intervals || {})}`;
+        _wireOhlcvRowControls();
       }
       if (matrixEl && matrixRes.ok) {
         const matrixData = await matrixRes.json();

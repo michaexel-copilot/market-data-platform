@@ -25,6 +25,7 @@ class OHLCVRecord(BaseModel):
     market_cap: float | None = None
     source: str
     ingested_at: datetime | None = None
+    tick_1m: int | None = None
     tick_1h: int | None = None
     tick_1d: int | None = None
     is_aggregated: bool = False

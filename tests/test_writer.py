@@ -177,9 +177,9 @@ class TestWriterUpsertSemantics:
         # Insert an aggregated row directly
         db_conn.execute(
             "INSERT INTO ohlcv"
-            " (instrument_id, interval, ts, open, high, low, close, source, is_aggregated)"
-            " VALUES (%s, '1m', %s, 100.0, 110.0, 90.0, 105.0, 'aggregated:binance_1m', TRUE)",
-            [self._INST_A, ts],
+            " (instrument_id, interval, ts, open, high, low, close, source, is_aggregated, tick_1m)"
+            " VALUES (%s, '1m', %s, 100.0, 110.0, 90.0, 105.0, 'aggregated:binance_1m', TRUE, %s)",
+            [self._INST_A, ts, int(ts.timestamp()) // 60],
         )
 
         # Upsert a real candle for the same primary key
@@ -221,9 +221,9 @@ class TestWriterUpsertSemantics:
         # Insert a real row directly
         db_conn.execute(
             "INSERT INTO ohlcv"
-            " (instrument_id, interval, ts, open, high, low, close, source, is_aggregated)"
-            " VALUES (%s, '1m', %s, 300.0, 310.0, 290.0, 305.0, 'binance', FALSE)",
-            [self._INST_B, ts],
+            " (instrument_id, interval, ts, open, high, low, close, source, is_aggregated, tick_1m)"
+            " VALUES (%s, '1m', %s, 300.0, 310.0, 290.0, 305.0, 'binance', FALSE, %s)",
+            [self._INST_B, ts, int(ts.timestamp()) // 60],
         )
 
         # Attempt to overwrite with an aggregated candle
@@ -252,14 +252,60 @@ class TestWriterUpsertSemantics:
         assert row[2] is False                  # still False (real data wins)
 
 
+class TestUpdateSourceSelection:
+    def test_rejects_stale_lower_interval_data(self):
+        from market_data.api.rest.instruments import _find_aggregation_source
+
+        conn = MagicMock()
+        target_last = datetime(2026, 4, 11, 6, 0, 0, tzinfo=timezone.utc)
+        stale_5m = datetime(2026, 3, 22, 0, 55, 0, tzinfo=timezone.utc)
+        conn.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=(target_last,))),
+            MagicMock(fetchone=MagicMock(return_value=(stale_5m,))),
+            MagicMock(fetchone=MagicMock(return_value=(None,))),
+        ]
+
+        source_interval, returned_target_last, source_last = _find_aggregation_source(conn, "TEST", "1h")
+
+        assert source_interval is None
+        assert returned_target_last == target_last
+        assert source_last is None
+
+    def test_prefers_closest_newer_source_interval(self):
+        from market_data.api.rest.instruments import _find_aggregation_source
+
+        conn = MagicMock()
+        target_last = datetime(2026, 4, 11, 6, 0, 0, tzinfo=timezone.utc)
+        newer_5m = datetime(2026, 4, 11, 6, 55, 0, tzinfo=timezone.utc)
+        conn.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=(target_last,))),
+            MagicMock(fetchone=MagicMock(return_value=(newer_5m,))),
+        ]
+
+        source_interval, returned_target_last, source_last = _find_aggregation_source(conn, "TEST", "1h")
+
+        assert source_interval == "5m"
+        assert returned_target_last == target_last
+        assert source_last == newer_5m
+
+
 class TestWriterTickColumn:
+    def test_1m_record_produces_correct_tick_1m(self):
+        ts = datetime(2026, 1, 1, 6, 0, 0, tzinfo=timezone.utc)
+        record = _make_record("1m", ts)
+        rows = _captured_rows([record])
+        assert len(rows) == 1
+        tick_1m = rows[0][-4]
+        expected = int(ts.timestamp()) // 60
+        assert tick_1m == expected, f"Expected tick_1m={expected}, got {tick_1m}"
+
     def test_1h_record_produces_correct_tick_1h(self):
         # 2026-01-01 06:00:00 UTC → epoch = 1735714800 → tick = 1735714800 // 3600 = 482143
         ts = datetime(2026, 1, 1, 6, 0, 0, tzinfo=timezone.utc)
         record = _make_record("1h", ts)
         rows = _captured_rows([record])
         assert len(rows) == 1
-        tick_1h = rows[0][-3]  # third-to-last: tick_1h (before tick_1d, is_aggregated)
+        tick_1h = rows[0][-3]
         expected = int(ts.timestamp()) // 3600
         assert tick_1h == expected, f"Expected tick_1h={expected}, got {tick_1h}"
 
@@ -269,10 +315,11 @@ class TestWriterTickColumn:
         record = _make_record("1d", ts)
         rows = _captured_rows([record])
         assert len(rows) == 1
-        tick_1d = rows[0][-2]  # second-to-last: tick_1d (before is_aggregated)
+        tick_1d = rows[0][-2]
         expected = int(ts.timestamp()) // 86400
         assert tick_1d == expected, f"Expected tick_1d={expected}, got {tick_1d}"
         assert rows[0][-3] is None, "Expected tick_1h=None for 1d record"
+        assert rows[0][-4] is None, "Expected tick_1m=None for 1d record"
 
     def test_non_1h_record_produces_null_tick_1h(self):
         ts = datetime(2026, 1, 1, 6, 0, 0, tzinfo=timezone.utc)
@@ -280,7 +327,7 @@ class TestWriterTickColumn:
             record = _make_record(interval, ts)
             rows = _captured_rows([record])
             assert len(rows) == 1
-            tick_1h = rows[0][-3]  # third-to-last: tick_1h
+            tick_1h = rows[0][-3]
             assert tick_1h is None, f"Expected tick_1h=None for interval={interval}, got {tick_1h}"
 
     def test_non_1d_record_produces_null_tick_1d(self):
@@ -289,5 +336,5 @@ class TestWriterTickColumn:
             record = _make_record(interval, ts)
             rows = _captured_rows([record])
             assert len(rows) == 1
-            tick_1d = rows[0][-2]  # second-to-last: tick_1d
+            tick_1d = rows[0][-2]
             assert tick_1d is None, f"Expected tick_1d=None for interval={interval}, got {tick_1d}"

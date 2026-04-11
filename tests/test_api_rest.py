@@ -110,6 +110,154 @@ async def test_get_ohlcv(app):
     assert bar["close"] == pytest.approx(35500)
 
 
+@pytest.mark.asyncio
+async def test_get_ohlcv_availability_always_includes_1m(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/v1/instruments/uuid-btc-001/ohlcv-availability")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["intervals"]["1m"] == {"first": None, "last": None}
+    assert data["intervals"]["1h"]["first"].startswith("2023-11-14T00:00:00")
+
+
+@pytest.mark.asyncio
+async def test_get_and_put_ohlcv_update_settings(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        get_resp = await client.get("/v1/instruments/uuid-btc-001/ohlcv-update-settings")
+    assert get_resp.status_code == 200
+    before = get_resp.json()
+    assert before["intervals"]["1m"]["auto_update"] is False
+    assert before["intervals"]["5m"]["auto_update"] is False
+    assert before["intervals"]["1h"]["auto_update"] is False
+    assert before["intervals"]["1d"]["auto_update"] is False
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        put_resp = await client.put(
+            "/v1/instruments/uuid-btc-001/ohlcv-update-settings/1h",
+            json={"auto_update": True},
+        )
+    assert put_resp.status_code == 200
+    assert put_resp.json()["auto_update"] is True
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        verify_resp = await client.get("/v1/instruments/uuid-btc-001/ohlcv-update-settings")
+    assert verify_resp.status_code == 200
+    after = verify_resp.json()
+    assert after["intervals"]["1h"]["auto_update"] is True
+    assert after["intervals"]["1m"]["auto_update"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_ohlcv_1m_fetches_binance_records(patched_db, app):
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from market_data.models.ohlcv import OHLCVRecord
+
+    now = datetime.now(tz=timezone.utc).replace(second=0, microsecond=0)
+    fake_records = [
+        OHLCVRecord(
+            instrument_id="uuid-btc-001",
+            interval="1m",
+            ts=now + timedelta(minutes=i),
+            open=100.0 + i,
+            high=101.0 + i,
+            low=99.0 + i,
+            close=100.5 + i,
+            volume=1.0,
+            source="binance",
+        )
+        for i in range(2)
+    ]
+
+    with patch(
+        "market_data.connectors.binance.BinanceConnector.fetch_ohlcv",
+        new=AsyncMock(return_value=fake_records),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/v1/instruments/uuid-btc-001/update-ohlcv/1m")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["interval"] == "1m"
+    assert data["written"] == 2
+    row = patched_db.execute(
+        "SELECT COUNT(*), MIN(tick_1m), MAX(tick_1m) FROM ohlcv"
+        " WHERE instrument_id = %s AND interval = '1m'",
+        ["uuid-btc-001"],
+    ).fetchone()
+    assert row[0] == 2
+    assert row[1] is not None
+    assert row[2] is not None
+
+
+@pytest.mark.asyncio
+async def test_update_ohlcv_1d_aggregates_from_1h(patched_db, app):
+    patched_db.execute(
+        "DELETE FROM ohlcv WHERE instrument_id = %s AND interval = '1d'",
+        ["uuid-btc-001"],
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/instruments/uuid-btc-001/update-ohlcv/1d")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["interval"] == "1d"
+    assert data["source_interval"] == "1h"
+    assert data["written"] == 1
+
+    row = patched_db.execute(
+        "SELECT open, high, low, close, is_aggregated FROM ohlcv"
+        " WHERE instrument_id = %s AND interval = '1d'",
+        ["uuid-btc-001"],
+    ).fetchone()
+    assert row is not None
+    assert row[0] == pytest.approx(35000)
+    assert row[1] == pytest.approx(35800)
+    assert row[2] == pytest.approx(34900)
+    assert row[3] == pytest.approx(35600)
+    assert row[4] is True
+
+
+@pytest.mark.asyncio
+async def test_update_ohlcv_1h_rejects_older_5m_source(patched_db, app):
+    patched_db.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
+        " VALUES (%s, '5m', %s, %s, %s, %s, %s, %s, %s)",
+        ["uuid-btc-001", "2023-11-13 23:55:00+00", 34950, 35010, 34940, 35000, 12, "test"],
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/instruments/uuid-btc-001/update-ohlcv/1h")
+
+    assert resp.status_code == 422
+    assert "No newer lower-resolution OHLCV data" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_ohlcv_5m_requires_newer_1m_source(patched_db, app):
+    patched_db.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source)"
+        " VALUES (%s, '5m', %s, %s, %s, %s, %s, %s, %s)",
+        ["uuid-btc-001", "2023-11-14 23:00:00+00", 35550, 35620, 35510, 35600, 8, "test"],
+    )
+    patched_db.execute(
+        "INSERT INTO ohlcv"
+        " (instrument_id, interval, ts, open, high, low, close, volume, source, tick_1m)"
+        " VALUES (%s, '1m', %s, %s, %s, %s, %s, %s, %s, %s)",
+        ["uuid-btc-001", "2023-11-14 22:59:00+00", 35540, 35580, 35520, 35550, 1, "test", 28331699],
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/instruments/uuid-btc-001/update-ohlcv/5m")
+
+    assert resp.status_code == 422
+    assert "Update 1m first" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # Trading strategies endpoints
 # ---------------------------------------------------------------------------
@@ -428,6 +576,18 @@ async def test_console_no_best_sma_controls(app):
     html = resp.text
     assert "INP_BEST_SMA_POS_USD" not in html
     assert "BTN_COMPUTE_BEST_SMA_V2" not in html
+
+
+@pytest.mark.asyncio
+async def test_console_contains_ohlcv_interval_actions(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/console")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Actions" in html
+    assert "Auto" in html
+    assert "/ohlcv-update-settings" in html
+    assert "/update-ohlcv/" in html
 
 
 @pytest.mark.asyncio
