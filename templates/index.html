@@ -11,6 +11,11 @@
     crossorigin="anonymous"
   />
   <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"
+  ></script>
+  <script
     src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
     crossorigin="anonymous"
   ></script>
@@ -557,20 +562,5 @@ document.querySelectorAll('input[name="sidebar_network"]').forEach(r => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Accordion toggle (Bootstrap CSS classes, no Bootstrap JS required)
-// ---------------------------------------------------------------------------
-document.addEventListener('click', function (e) {
-  const btn = e.target.closest('.accordion-button[data-bs-toggle="collapse"]');
-  if (!btn) return;
-  const targetId = btn.getAttribute('data-bs-target');
-  if (!targetId) return;
-  const panel = document.querySelector(targetId);
-  if (!panel) return;
-  const expanding = !panel.classList.contains('show');
-  panel.classList.toggle('show', expanding);
-  btn.classList.toggle('collapsed', !expanding);
-  btn.setAttribute('aria-expanded', String(expanding));
-});
 </script>
 </html>
