@@ -5,6 +5,7 @@ Start with:   uv run serve
 Then open:    http://localhost:8000
 """
 import csv
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -28,7 +29,7 @@ from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # n
 from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
 from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache, delete_cache_file, list_cache, cache_path, BACKTEST_CACHE_DIR  # noqa: E402
 
-HL_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
+HL_PAIRS_CSV = Path(os.environ.get("HL_PAIRS_CSV", "/mnt/ds420/data/hyperliquid/hl-main-pairs.csv"))
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
 HL_TESTNET_PAIRS_CSV = ROOT / "hl_testnet_pairs_with_mcap.csv"
 
