@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -24,7 +25,7 @@ _HL_ENV = Path("/work/projekte/hyperliquid-python/hl_client/.env")
 # ---------------------------------------------------------------------------
 
 HL_TESTNET_PAIRS_CSV = ROOT / "hl_testnet_pairs.csv"
-HL_MAINNET_PAIRS_CSV = Path("/mnt/ds420/data/hyperliquid/hl-main-pairs.csv")
+HL_MAINNET_PAIRS_CSV = Path(os.environ.get("HL_PAIRS_CSV", "/mnt/ds420/data/hyperliquid/hl-main-pairs.csv"))
 
 
 @dataclass
@@ -100,7 +101,10 @@ async def place_order(
       sl_order_id  str | None
       error        str               (on failure)
     """
-    from hl_client import HLClient  # imported lazily so module loads fast
+    try:
+        from hl_client import HLClient  # imported lazily so module loads fast
+    except ImportError:
+        return {"ok": False, "error": "Order placement is not available in this deployment (hl_client is not installed)"}
 
     # AFTER — reads file fresh every call, immune to os.environ caching
     creds = dotenv_values(_HL_ENV)

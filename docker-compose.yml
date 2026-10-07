@@ -1,0 +1,33 @@
+# Market data platform behind Traefik (Hostinger "Docker and Traefik" VPS template).
+# Traefik runs in host network mode and finds this container through the Docker
+# socket, so no shared network is needed. The web app has no login of its own,
+# so access is protected by Traefik basic auth.
+#
+# Create the user entry with:  openssl passwd -apr1
+# and put "user:hash" in .env as MARKET_AUTH_USERS (escape every $ as $$ if you
+# write it into this file instead).
+services:
+  market-data:
+    image: ghcr.io/michaexel-copilot/market-data-platform:latest
+    container_name: market-data
+    restart: unless-stopped
+    environment:
+      CMC_API_KEY: ${CMC_API_KEY:-}
+    volumes:
+      - market-data-data:/app/data
+      - market-data-cache:/app/cache
+      - market-data-png:/app/png
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.market-data.rule=Host(`${MARKET_DOMAIN:-market.michaexel.de}`)
+      - traefik.http.routers.market-data.entrypoints=websecure
+      - traefik.http.routers.market-data.tls=true
+      - traefik.http.routers.market-data.tls.certresolver=letsencrypt
+      - traefik.http.routers.market-data.middlewares=market-data-auth
+      - traefik.http.middlewares.market-data-auth.basicauth.users=${MARKET_AUTH_USERS:?set MARKET_AUTH_USERS}
+      - traefik.http.services.market-data.loadbalancer.server.port=8000
+
+volumes:
+  market-data-data:
+  market-data-cache:
+  market-data-png:
