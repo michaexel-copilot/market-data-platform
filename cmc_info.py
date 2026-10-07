@@ -10,7 +10,7 @@ Returned dict keys:
   token_address str | None — contract address on the platform chain
 """
 import json
-import sys
+import os
 import time
 from datetime import date
 from pathlib import Path
@@ -18,8 +18,9 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT))
-from coinMarketCapKey import cmc_key  # noqa: E402
+cmc_key = os.environ.get("CMC_API_KEY", "")
+if not cmc_key:
+    print("[cmc_info] Warning: CMC_API_KEY not set — market cap and CMC metadata are disabled")
 
 CMC_INFO_URL = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/info"
 

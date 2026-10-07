@@ -76,22 +76,16 @@ CG_COIN_ID_MAP: dict[str, str] = {
 
 CG_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
 
-# Local EODHD service — hourly OHLCV data, no rate limits.
+# Local EODHD service — decommissioned (Board-Entscheidung O1(c), HED-19, 2026-10-06):
+# kein Vertrag deckt diese Quelle. Konstante bleibt stehen, damit die Fetch-Hilfsfunktionen
+# unten syntaktisch gültig bleiben; EODHD_SYMBOL_MAP ist leer, es löst also nie ein Symbol
+# mehr hierher auf.
 EODHD_BASE_URL = "http://localhost:8010"
 
 # Maps HL symbol → EODHD instrument_id for symbols with hourly data in the
 # local service.  Populated only for symbols confirmed to have data (total > 0).
 # Extend this dict as more symbols are imported into the EODHD service.
-EODHD_SYMBOL_MAP: dict[str, str] = {
-    "BTC":  "bitcoin",
-    "ETH":  "ethereum",
-    "BNB":  "bnb",
-    "XRP":  "xrp",
-    "SOL":  "solana",
-    "ADA":  "cardano",
-    "ALGO": "algorand",
-    "SKY":  "sky",
-}
+EODHD_SYMBOL_MAP: dict[str, str] = {}  # decommissioned, siehe Kommentar oben
 
 
 def get_data_source(hl_symbol: str) -> str:

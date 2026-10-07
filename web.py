@@ -29,6 +29,10 @@ from perf_data import compute_perf_rows, fetch_4h_candles, fetch_5y_candles  # n
 from hl_order import get_pair_meta, place_order as hl_place_order  # noqa: E402
 from backtest_engine import optimize_and_validate, load_cache, save_cache, delete_cache, delete_cache_file, list_cache, cache_path, BACKTEST_CACHE_DIR  # noqa: E402
 
+# Surfaced in the asset detail template so a missing key shows a labeled
+# reason instead of the same blank dash as "no data for this coin".
+CMC_KEY_CONFIGURED = bool(os.environ.get("CMC_API_KEY", ""))
+
 HL_PAIRS_CSV = Path(os.environ.get("HL_PAIRS_CSV", "/mnt/ds420/data/hyperliquid/hl-main-pairs.csv"))
 assert HL_PAIRS_CSV.exists(), f"Asset list not found: {HL_PAIRS_CSV}"
 HL_TESTNET_PAIRS_CSV = ROOT / "hl_testnet_pairs_with_mcap.csv"
@@ -60,21 +64,24 @@ TEMPLATES.env.filters["fmt_usd"] = _fmt_usd
 import json as _json  # noqa: E402 (needed here for module-level cache)
 import os as _os  # noqa: E402
 import requests as _requests  # noqa: E402
+import time as _time  # noqa: E402
 
 _EUR_RATE_CACHE: dict = {}
+# Monotonic timestamp (seconds) until which a failed fetch is not retried.
+# Avoids making every page view wait out the 10 s timeout during an outage.
+_EUR_RATE_FAIL_UNTIL: float = 0.0
+_EUR_RATE_FAIL_COOLDOWN_SECONDS = 300  # 5 minutes
 
-# URL of the market-data-platform REST API (override via env var).
-_MARKET_DATA_PLATFORM_URL = _os.environ.get(
-    "MARKET_DATA_PLATFORM_URL", "http://localhost:8010"
-).rstrip("/")
 
-
-def fetch_eur_usd_rate() -> float:
+def fetch_eur_usd_rate() -> float | None:
     """
     Return today's USD→EUR rate (i.e. 1 USD = ? EUR).
     Source: open.er-api.com (free, no key required).
-    Falls back to 0.92 if unavailable.
+    Returns None if the source is unavailable, or if it failed recently and
+    is in cooldown. Callers must not substitute an invented number
+    (Handbuch 11 — Beweispflicht).
     """
+    global _EUR_RATE_FAIL_UNTIL
     today = date.today().isoformat()
     if _EUR_RATE_CACHE.get("date") == today:
         return _EUR_RATE_CACHE["rate"]
@@ -88,6 +95,9 @@ def fetch_eur_usd_rate() -> float:
         except Exception:  # noqa: BLE001
             pass
 
+    if _time.monotonic() < _EUR_RATE_FAIL_UNTIL:
+        return None
+
     try:
         resp = _requests.get(
             "https://open.er-api.com/v6/latest/USD",
@@ -96,8 +106,9 @@ def fetch_eur_usd_rate() -> float:
         resp.raise_for_status()
         rate = float(resp.json()["rates"]["EUR"])
     except Exception as exc:  # noqa: BLE001
-        print(f"[web] EUR/USD fetch failed: {exc}; using fallback 0.92")
-        rate = 0.92
+        print(f"[web] EUR/USD fetch failed: {exc}; no rate available for {_EUR_RATE_FAIL_COOLDOWN_SECONDS}s")
+        _EUR_RATE_FAIL_UNTIL = _time.monotonic() + _EUR_RATE_FAIL_COOLDOWN_SECONDS
+        return None
 
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -493,6 +504,7 @@ async def asset_detail(
             "request":        request,
             "symbol":         sym_upper,
             "market_cap_usd": asset["market_cap_usd"] if asset else None,
+            "cmc_key_configured": CMC_KEY_CONFIGURED,
             "info":           info,
             "cg":             cg,
             "last_close":     last_close,
@@ -539,43 +551,21 @@ class OrderRequest(BaseModel):
 
 
 @app.get("/asset/{symbol}/best-sma")
-# DEPRECATED: superseded by POST /asset/{symbol}/backtest (redesign-backtesting-v2).
-# Will be removed in a follow-up change.
+# DEPRECATED, disabled: superseded by POST /asset/{symbol}/backtest (redesign-backtesting-v2).
+# Backing service decommissioned (Board-Entscheidung O1(c), HED-19, 2026-10-06).
 async def best_sma_endpoint(
     symbol: str,
     sl_short: int = 10,
     sl_long: int = 10,
     pos: int = 100,
 ) -> JSONResponse:
-    """Return the best (sma_low, sma_high) pair for the given symbol.
-
-    The values are read from the market-data-platform (precomputed). Returns HTTP 503
-    when precomputed data is not yet available — run import-ohlcv and compute-indicators first.
+    """Disabled: the backing local service (EODHD, port 8010) is decommissioned.
+    Use POST /asset/{symbol}/backtest instead.
     """
-    try:
-        import httpx
-        url = f"{_MARKET_DATA_PLATFORM_URL}/v1/trading-strategies/{symbol.lower()}?strategy_name=best_sma"
-        resp = httpx.get(url, timeout=10.0)
-        if resp.status_code == 404:
-            return JSONResponse(
-                {"error": f"No precomputed best_sma for {symbol}. Run 'import-ohlcv --interval 1h' then 'compute-indicators --strategy best_sma' first."},
-                status_code=503,
-            )
-        elif resp.status_code != 200:
-            return JSONResponse(
-                {"error": f"market-data-platform returned {resp.status_code}: {resp.text}"},
-                status_code=500,
-            )
-        items = resp.json().get("items", [])
-        indicator_map = {item["indicator_name"]: item["indicator_value"] for item in items}
-        sma_low  = int(indicator_map["sma_low"])
-        sma_high = int(indicator_map["sma_high"])
-
-        _get_or_compute_oos(symbol.upper(), sma_low, sma_high, sl_short, sl_long, pos)
-
-        return JSONResponse({"sma": sma_low, "sma_high": sma_high})
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    return JSONResponse(
+        {"error": "This endpoint is disabled: its backing service is decommissioned. Use POST /asset/{symbol}/backtest instead."},
+        status_code=410,
+    )
 
 
 @app.post("/asset/{symbol}/order")

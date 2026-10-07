@@ -24,10 +24,7 @@ RUN uv export --frozen --no-dev --no-hashes --no-emit-project --no-emit-package 
 
 COPY . .
 
-# coinMarketCapKey.py is a git-ignored secret module; this shim reads the key
-# from the environment instead (CMC_API_KEY).
-RUN printf 'import os\ncmc_key = os.environ.get("CMC_API_KEY", "")\n' > coinMarketCapKey.py \
- && useradd --uid 1000 --create-home app \
+RUN useradd --uid 1000 --create-home app \
  && mkdir -p data cache png \
  && chown -R app:app /app
 
