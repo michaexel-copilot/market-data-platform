@@ -78,4 +78,4 @@ Commit messages follow **Conventional Commits**:
   Verify new entries at: `https://api.coingecko.com/api/v3/coins/{id}/ohlc?vs_currency=usd&days=7`
 - `K_SCALE_SET` contains HL symbols that represent 1000 × the underlying coin.
 - OHLCV cache key for CoinGecko entries is `cg:{slug}` (e.g. `cg:sui`).
-- `coinMarketCapKey.py` is gitignored — never commit API keys.
+- CoinMarketCap key comes from the `CMC_API_KEY` environment variable (optional; empty disables CMC data). `coinMarketCapKey.py` remains gitignored as a precaution — never commit API keys to it.
