@@ -25,6 +25,8 @@
         <div class="fw-semibold fs-6">
           {% if market_cap_usd %}
             ${{ "{:,.2f}".format(market_cap_usd / 1e9) }}B
+          {% elif not cmc_key_configured %}
+            <span class="text-muted" style="font-size:0.68rem">no CMC key</span>
           {% else %}
             &mdash;
           {% endif %}
@@ -72,6 +74,9 @@
             </td>
           </tr>
         </table>
+        <div class="text-muted" style="font-size:0.68rem; margin-top:4px">
+          ATH/ATL by <a href="https://www.coingecko.com" target="_blank" rel="noopener noreferrer">CoinGecko</a>
+        </div>
       </div>
     </div>
   </div>
@@ -315,6 +320,7 @@
     <p class="mb-1 fw-semibold text-muted" style="font-size:0.75rem">Notes</p>
     <p class="mb-1"><strong>High / Low</strong><br>Exact price range (Yahoo Finance) or daily-close range (CoinGecko sources).</p>
     <p class="mb-1"><strong>VWAP</strong><br>Volume-weighted average price over the period.</p>
+    <p class="mb-1"><strong>EUR (€)</strong><br>Rates By <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">Exchange Rate API</a>. Shown only when today's rate was fetched.</p>
     <p class="mb-1"><strong>Volume</strong><br>Total traded USD over the period.</p>
     <p class="mb-0"><strong>Chart lines</strong><br>
       {% for lbl, col in chart_colors.items() %}

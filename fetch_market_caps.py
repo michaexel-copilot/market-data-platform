@@ -1,14 +1,14 @@
 import csv
-import sys
+import os
 import time
 from pathlib import Path
 
 import requests
 
-# Allow importing coinMarketCapKey from the project root regardless of cwd
 ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT))
-from coinMarketCapKey import cmc_key  # noqa: E402
+cmc_key = os.environ.get("CMC_API_KEY", "")
+if not cmc_key:
+    print("No CMC_API_KEY set — market caps will be empty for all symbols.")
 
 INPUT_CSV = ROOT / "hl_testnet_pairs.csv"
 OUTPUT_CSV = ROOT / "hl_testnet_pairs_with_mcap.csv"
