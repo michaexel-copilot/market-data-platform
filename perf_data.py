@@ -12,6 +12,7 @@ Candle dict keys:  date, open, high, low, close, volume (float|None, USD)
 Period stat dict keys: label, high, low, vwap, volume_usd (all float|None)
 """
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -39,6 +40,14 @@ from draw_chart import (  # noqa: E402
 CACHE_DIR = ROOT / "cache" / "ohlcv"
 
 CG_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
+
+# Optional CoinGecko Demo-tier key (free). Empty means unauthenticated requests,
+# exactly as before this variable existed.
+cg_key = os.environ.get("COINGECKO_API_KEY", "")
+
+
+def _cg_headers() -> dict[str, str]:
+    return {"x-cg-demo-api-key": cg_key} if cg_key else {}
 
 # ---------------------------------------------------------------------------
 # 5-year candle fetch
@@ -105,6 +114,7 @@ def _fetch_5y_cg(cg_id: str) -> list[dict]:
     resp = requests.get(
         CG_MARKET_CHART_URL.format(id=cg_id),
         params={"vs_currency": "usd", "days": "365"},
+        headers=_cg_headers(),
         timeout=30,
     )
     resp.raise_for_status()
@@ -373,6 +383,7 @@ def _fetch_hourly_cg(cg_id: str, multiplier: float) -> list[dict]:
     resp = requests.get(
         CG_MARKET_CHART_URL.format(id=cg_id),
         params={"vs_currency": "usd", "days": "90"},
+        headers=_cg_headers(),
         timeout=30,
     )
     resp.raise_for_status()

@@ -13,6 +13,7 @@ services:
     restart: unless-stopped
     environment:
       CMC_API_KEY: ${CMC_API_KEY:-}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
     volumes:
       - market-data-data:/app/data
       - market-data-cache:/app/cache

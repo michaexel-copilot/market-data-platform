@@ -79,3 +79,4 @@ Commit messages follow **Conventional Commits**:
 - `K_SCALE_SET` contains HL symbols that represent 1000 × the underlying coin.
 - OHLCV cache key for CoinGecko entries is `cg:{slug}` (e.g. `cg:sui`).
 - CoinMarketCap key comes from the `CMC_API_KEY` environment variable (optional; empty disables CMC data). `coinMarketCapKey.py` remains gitignored as a precaution — never commit API keys to it.
+- CoinGecko calls send the `x-cg-demo-api-key` header when the `COINGECKO_API_KEY` environment variable is set (optional; empty means unauthenticated requests, same as before). Demo tier only — base URL stays `api.coingecko.com`.
