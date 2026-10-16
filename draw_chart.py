@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -75,6 +76,14 @@ CG_COIN_ID_MAP: dict[str, str] = {
 }
 
 CG_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
+
+# Optional CoinGecko Demo-tier key (free). Empty means unauthenticated requests,
+# exactly as before this variable existed.
+cg_key = os.environ.get("COINGECKO_API_KEY", "")
+
+
+def _cg_headers() -> dict[str, str]:
+    return {"x-cg-demo-api-key": cg_key} if cg_key else {}
 
 # Local EODHD service — decommissioned (Board-Entscheidung O1(c), HED-19, 2026-10-06):
 # kein Vertrag deckt diese Quelle. Konstante bleibt stehen, damit die Fetch-Hilfsfunktionen
@@ -286,7 +295,7 @@ def _fetch_from_coingecko(cg_id: str) -> list[dict]:
     url = CG_MARKET_CHART_URL.format(id=cg_id)
     params = {"vs_currency": "usd", "days": "365"}
     for attempt in range(2):
-        resp = requests.get(url, params=params, timeout=20)
+        resp = requests.get(url, params=params, headers=_cg_headers(), timeout=20)
         if resp.status_code == 429 and attempt == 0:
             _time.sleep(12)  # CG free tier: ~5 req/min sustained; wait and retry
             continue

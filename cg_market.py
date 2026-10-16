@@ -5,6 +5,7 @@ No API key required.  Rate limit ~30 req/min on free tier.
 Data is cached daily to cache/cg_market/{SYM}_{DATE}.json.
 """
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -19,6 +20,14 @@ ROOT      = Path(__file__).parent
 CACHE_DIR = ROOT / "cache" / "cg_market"
 
 CG_COINS_URL = "https://api.coingecko.com/api/v3/coins/{id}"
+
+# Optional CoinGecko Demo-tier key (free). Empty means unauthenticated requests,
+# exactly as before this variable existed.
+cg_key = os.environ.get("COINGECKO_API_KEY", "")
+
+
+def _cg_headers() -> dict[str, str]:
+    return {"x-cg-demo-api-key": cg_key} if cg_key else {}
 
 # ---------------------------------------------------------------------------
 # HL symbol → CoinGecko coin ID for ATH/ATL lookups.
@@ -286,6 +295,7 @@ def fetch_cg_market(hl_symbol: str) -> dict:
                 "developer_data":  "false",
                 "sparkline":       "false",
             },
+            headers=_cg_headers(),
             timeout=15,
         )
         resp.raise_for_status()
