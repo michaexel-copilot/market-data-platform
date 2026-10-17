@@ -17,6 +17,7 @@ dependencies = [
     "pandas>=2.0",
     "backtesting>=0.3.3",
     "python-multipart>=0.0.22",
+    "psycopg[binary]>=3.2",
 ]
 
 [project.scripts]
@@ -24,6 +25,7 @@ fetch-market-caps = "fetch_market_caps:main"
 draw-chart = "draw_chart:main"
 draw-all-charts = "draw_all_charts:main"
 serve = "web:main"
+backfill = "ohlcv_backfill:main"
 
 [tool.uv]
 package = true
@@ -44,5 +46,6 @@ only-include = [
     "cmc_info.py",
     "web.py",
     "hl_order.py",
+    "ohlcv_backfill.py",
     "templates",
 ]
