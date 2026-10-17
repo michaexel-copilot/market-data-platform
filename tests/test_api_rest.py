@@ -362,6 +362,10 @@ async def test_backtest_v2(app):
     assert data["strategy"] == "best_sma_exit_v1"
     assert "summary" in data
     assert "trades" in data
+    assert "chart" in data
+    assert "dates" in data["chart"]
+    assert len(data["chart"]["dates"]) == len(data["chart"]["price"])
+    assert data["chart"]["mode"] in {"trade_context", "fallback_30d"}
 
 
 @pytest.mark.asyncio
@@ -597,3 +601,31 @@ async def test_console_no_best_sma_section(app):
         resp = await client.get("/console")
     assert resp.status_code == 200
     assert "best-sma-v2-section" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_console_asset_detail_performance_layout(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/console")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Cached Backtests" in html
+    assert "Validation Trades" in html
+    assert "Performance" in html
+    assert "Chart & Trades: Chart" not in html
+    assert html.index("Cached Backtests") < html.index("Validation Trades") < html.index("Performance")
+
+
+@pytest.mark.asyncio
+async def test_console_contains_shared_backtest_post_load_flow(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/console")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "handleCachedBacktestPostLoad" in html
+    assert "Run New Backtest" in html
+    assert "btn-backtest-load" in html
+    assert "setAccordionOpen('performance', true)" in html
+    assert "computeChartWindow" in html
+    assert "mode: 'fallback_30d'" in html
+    assert "mode: 'trade_context'" in html

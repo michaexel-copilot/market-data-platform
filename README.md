@@ -96,6 +96,8 @@ HTTP_PORT=9000 GRPC_PORT=9001 uv run serve
 | `uv run import-cryptocompare stage` | Load CryptoCompare flat file into staging table (`stg_cryptocompare_1h`) |
 | `uv run import-cryptocompare migrate` | Upsert staged 1h rows into the `ohlcv` hypertable |
 | `uv run import-cryptocompare aggregate-daily` | Derive and upsert 1d candles from staged 1h data |
+| `uv run download-cryptodatadownload-1h --symbol BTC \| --all` | Download hourly OHLCV flat files from cryptodatadownload.com |
+| `uv run import-cryptodatadownload-1h --symbol BTC \| --all` | Import downloaded cryptodatadownload.com 1h flat files into the `ohlcv` hypertable |
 | `uv run import-hl-pairs` | Fetch and upsert Hyperliquid perpetual pairs |
 | `uv run import-source-intersection` | Rebuild `instrument_source_intersection` from live source coverage |
 | `uv run compute-indicators` | Bulk-compute trading strategy indicators and store results |
@@ -313,6 +315,7 @@ The command exits with code `0` on success or `1` if any instrument failed (erro
 | FMP | Equities, ETFs, Crypto, FX | 1m–1d | Free tier + paid |
 | Binance | Crypto | 1m–1w | Free |
 | Kraken | Crypto | 1m–1d | Free |
+| CryptoDataDownload | Crypto | 1h (historical import) | Free |
 | OpenFIGI | All (reference only) | — | Free |
 | SEC EDGAR | US Equities | Quarterly | Free |
 | Nasdaq Data Link | Commodities, Macro | 1d | Free tier + paid |

@@ -1,6 +1,8 @@
 """Unit and integration tests for the strategy engine."""
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 
 from market_data.strategies.backtest import sma, backtest_short_strategy, backtest_long_strategy
@@ -216,3 +218,83 @@ def test_strategy_registry_contains_best_sma_exit_v1(db_with_ohlcv):
     assert "best_sma_exit_v1" in STRATEGY_REGISTRY
     result = STRATEGY_REGISTRY["best_sma_exit_v1"]("uuid-btc-001", {})
     assert "sma_low" in result
+
+
+def test_build_performance_chart_payload_trade_context_window():
+    from market_data.api.rest.trading_strategies import _build_performance_chart_payload
+
+    today = dt.date.today()
+    candles = [
+        {
+            "date": (today - dt.timedelta(days=39 - idx)).isoformat(),
+            "open": 100.0 + idx,
+            "high": 101.5 + idx,
+            "low": 98.5 + idx,
+            "close": 100.5 + idx,
+        }
+        for idx in range(40)
+    ]
+
+    payload = _build_performance_chart_payload(
+        candles,
+        [{"entry_date": (today - dt.timedelta(days=2)).isoformat()}],
+        sma_low_period=5,
+        sma_high_period=8,
+    )
+
+    assert payload["mode"] == "trade_context"
+    assert (dt.date.fromisoformat(payload["end"]) - dt.date.fromisoformat(payload["start"])) >= dt.timedelta(days=29)
+    assert len(payload["dates"]) == len(payload["price"]) == len(payload["indicators"]["sma_low"]) == len(payload["indicators"]["sma_high"])
+
+
+def test_build_performance_chart_payload_fallback_window():
+    from market_data.api.rest.trading_strategies import _build_performance_chart_payload
+
+    today = dt.date.today()
+    candles = [
+        {
+            "date": (today - dt.timedelta(days=34 - idx)).isoformat(),
+            "open": 150.0 + idx,
+            "high": 151.0 + idx,
+            "low": 149.0 + idx,
+            "close": 150.5 + idx,
+        }
+        for idx in range(35)
+    ]
+
+    payload = _build_performance_chart_payload(
+        candles,
+        [],
+        sma_low_period=5,
+        sma_high_period=7,
+    )
+
+    assert payload["mode"] == "fallback_30d"
+    assert (dt.date.fromisoformat(payload["end"]) - dt.date.fromisoformat(payload["start"])) >= dt.timedelta(days=29)
+    assert payload["state"] == "price_and_indicators"
+
+
+def test_build_performance_chart_payload_price_only_state_when_indicators_missing():
+    from market_data.api.rest.trading_strategies import _build_performance_chart_payload
+
+    today = dt.date.today()
+    candles = [
+        {
+            "date": (today - dt.timedelta(days=2 - idx)).isoformat(),
+            "open": 200.0 + idx,
+            "high": 201.0 + idx,
+            "low": 199.0 + idx,
+            "close": 200.5 + idx,
+        }
+        for idx in range(3)
+    ]
+
+    payload = _build_performance_chart_payload(
+        candles,
+        [],
+        sma_low_period=10,
+        sma_high_period=12,
+    )
+
+    assert payload["state"] == "price_only"
+    assert len(payload["dates"]) == 3

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from market_data.db.connection import get_connection
 from market_data.models.instrument import InstrumentRecord
-from market_data.models.ohlcv import OHLCVRecord
+from market_data.models.ohlcv import OHLCVRecord, invalid_ohlcv_reason
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,24 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
     """
     if not records:
         return 0
+    valid_records: list[OHLCVRecord] = []
+    for record in records:
+        reason = invalid_ohlcv_reason(record)
+        if reason is not None:
+            logger.warning(
+                "Skipping invalid OHLCV record for %s %s %s from %s: %s",
+                record.instrument_id,
+                record.interval,
+                record.ts.isoformat(),
+                record.source,
+                reason,
+            )
+            continue
+        valid_records.append(record)
+
+    if not valid_records:
+        return 0
+
     conn = get_connection()
     now = datetime.now(tz=timezone.utc)
     rows = [
@@ -43,7 +61,7 @@ def write_ohlcv(records: list[OHLCVRecord]) -> int:
             int(r.ts.timestamp()) // 86400 if str(r.interval) == "1d" else None,
             r.is_aggregated,
         )
-        for r in records
+        for r in valid_records
     ]
     with conn.cursor() as cur:
         cur.executemany(

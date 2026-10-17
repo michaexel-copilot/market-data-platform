@@ -130,6 +130,33 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     #PANE_FUNDAMENTALS .avail-yes { color: #1e7e34; }
     #PANE_FUNDAMENTALS .avail-no  { color: #bbb; }
     #PANE_FUNDAMENTALS .import-ok { color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 4px; padding: 8px 12px; font-size: 0.88rem; margin-bottom: 12px; }
+    #PANE_FUNDAMENTALS .asset-detail-analysis { margin-top: 24px; max-width: 920px; display: grid; gap: 16px; }
+    #PANE_FUNDAMENTALS .analysis-section { background: #fff; border: 1px solid #e6e9ef; border-radius: 8px; padding: 14px 16px; }
+    #PANE_FUNDAMENTALS .analysis-header-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    #PANE_FUNDAMENTALS .placeholder-sm { color: #8a8a8a; font-size: 0.84rem; }
+    #PANE_FUNDAMENTALS .backtest-actions { display: flex; gap: 8px; }
+    #PANE_FUNDAMENTALS .btn-backtest-run, #PANE_FUNDAMENTALS .btn-backtest-load {
+      padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;
+    }
+    #PANE_FUNDAMENTALS .btn-backtest-run { background: #1a73e8; color: #fff; }
+    #PANE_FUNDAMENTALS .btn-backtest-load { background: #eef3fd; color: #1a4fb3; }
+    #PANE_FUNDAMENTALS .btn-backtest-run:disabled, #PANE_FUNDAMENTALS .btn-backtest-load:disabled { background: #bbb; color: #fff; cursor: not-allowed; }
+    #PANE_FUNDAMENTALS .backtest-table th { padding: 6px 12px; font-size: 0.8rem; font-weight: 700; text-align: left; background: #f5f5f5; border-bottom: 2px solid #e0e0e0; }
+    #PANE_FUNDAMENTALS .backtest-table td { padding: 8px 12px; font-size: 0.83rem; border-bottom: 1px solid #eee; }
+    #PANE_FUNDAMENTALS .trades-table th { padding: 6px 10px; font-size: 0.78rem; font-weight: 700; text-align: left; background: #f8f8f8; border-bottom: 2px solid #e0e0e0; }
+    #PANE_FUNDAMENTALS .trades-table td { padding: 6px 10px; font-size: 0.81rem; border-bottom: 1px solid #eee; }
+    #PANE_FUNDAMENTALS .accordion-toggle {
+      width: 100%; display: flex; justify-content: space-between; align-items: center;
+      border: none; background: transparent; font-size: 0.95rem; font-weight: 700; cursor: pointer;
+    }
+    #PANE_FUNDAMENTALS .accordion-panel { display: none; margin-top: 12px; }
+    #PANE_FUNDAMENTALS .accordion-item.open .accordion-panel { display: block; }
+    #PANE_FUNDAMENTALS .chart-meta { color: #666; font-size: 0.82rem; margin-bottom: 10px; }
+    #PANE_FUNDAMENTALS .performance-chart-svg { width: 100%; max-width: 760px; height: 240px; background: linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border: 1px solid #dbe4f3; border-radius: 6px; }
+    #PANE_FUNDAMENTALS .chart-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.8rem; color: #555; margin-bottom: 8px; }
+    #PANE_FUNDAMENTALS .chart-legend .legend-swatch { width: 10px; height: 10px; display: inline-block; border-radius: 99px; margin-right: 4px; }
+    #PANE_FUNDAMENTALS .chart-axis-labels { display: flex; justify-content: space-between; color: #777; font-size: 0.75rem; margin-top: 6px; }
+    #PANE_FUNDAMENTALS .chart-note { color: #8a5a00; background: #fff4d6; border: 1px solid #f2d48d; border-radius: 4px; padding: 6px 8px; font-size: 0.8rem; margin-bottom: 8px; }
 
     /* ── NAV_TABS ── */
     #NAV_TABS { display: flex; gap: 4px; }
@@ -220,6 +247,7 @@ _CONSOLE_HTML = """<!DOCTYPE html>
   let selectedTicker = null;
   let activeSources = new Set(['eodhd', 'hl']);
   let activeTab = 'instruments'; // 'instruments' | 'scheduler'
+  let activeBacktestPayload = null;
 
   // ── Element references ──
   let allLoadedInstruments = [];
@@ -548,6 +576,254 @@ _CONSOLE_HTML = """<!DOCTYPE html>
     });
   }
 
+  function _getBacktestStorageKey(ticker) {
+    return `market-data.cached-backtests.${String(ticker || '').toUpperCase()}`;
+  }
+
+  function _readCachedBacktests(ticker) {
+    try {
+      const raw = window.localStorage.getItem(_getBacktestStorageKey(ticker));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function _writeCachedBacktests(ticker, items) {
+    try {
+      window.localStorage.setItem(_getBacktestStorageKey(ticker), JSON.stringify((items || []).slice(0, 12)));
+    } catch (_) {
+      // ignore storage failures in the embedded console
+    }
+  }
+
+  function _storeCachedBacktest(ticker, payload) {
+    const createdAt = payload?.cached_at || new Date().toISOString();
+    const entry = {
+      id: createdAt,
+      created_at: createdAt,
+      strategy: payload?.strategy || 'best_sma_exit_v1',
+      summary: payload?.summary || {},
+      trades: Array.isArray(payload?.trades) ? payload.trades : [],
+      chart: payload?.chart || {},
+      payload,
+    };
+    const deduped = [entry].concat(_readCachedBacktests(ticker).filter(item => item.id !== entry.id));
+    _writeCachedBacktests(ticker, deduped);
+    return deduped;
+  }
+
+  function _renderAssetDetailAnalysis(ticker) {
+    return `<div class="asset-detail-analysis">` +
+      `<div class="analysis-section">` +
+        `<div class="analysis-header-row">` +
+          `<h3>Cached Backtests</h3>` +
+          `<div class="backtest-actions">` +
+            `<button class="btn-backtest-run" data-ticker="${escHtml(ticker || '')}">Run New Backtest</button>` +
+          `</div>` +
+        `</div>` +
+        `<div id="BACKTEST_CACHE_TABLE_CONTAINER"><p class="placeholder-sm">No cached backtests loaded yet.</p></div>` +
+      `</div>` +
+      `<div class="analysis-section validation-trades-section">` +
+        `<h3>Validation Trades</h3>` +
+        `<div id="VALIDATION_TRADES_CONTAINER"><p class="placeholder-sm">Load a cached backtest to inspect validation trades.</p></div>` +
+      `</div>` +
+      `<div class="analysis-section accordion-item" data-accordion="performance">` +
+        `<button class="accordion-toggle" type="button" data-target="performance"><span>Performance</span><span>▾</span></button>` +
+        `<div class="accordion-panel" id="PERFORMANCE_PANEL">` +
+          `<div id="PERFORMANCE_STATUS" class="chart-meta">Load a cached backtest to render the daily price and indicator chart.</div>` +
+          `<div id="PERFORMANCE_CHART_CONTAINER"><p class="placeholder-sm">No performance chart available yet.</p></div>` +
+        `</div>` +
+      `</div>` +
+    `</div>`;
+  }
+
+  function _renderCachedBacktestTable(ticker) {
+    const container = fundamentalsPane.querySelector('#BACKTEST_CACHE_TABLE_CONTAINER');
+    if (!container) return;
+    const items = _readCachedBacktests(ticker);
+    if (!items.length) {
+      container.innerHTML = '<p class="placeholder-sm">No cached backtests available. Use Run New Backtest to create one.</p>';
+      return;
+    }
+    const rows = items.map(item => {
+      const totalTrades = Number(item?.summary?.total_trades || item?.trades?.length || 0);
+      const totalPnl = Number(item?.summary?.total_pnl || 0);
+      return `<tr>` +
+        `<td>${escHtml(String(item.created_at || '').slice(0, 16).replace('T', ' '))}</td>` +
+        `<td>${escHtml(item.strategy || 'best_sma_exit_v1')}</td>` +
+        `<td>${escHtml(String(totalTrades))}</td>` +
+        `<td>${escHtml(totalPnl.toFixed(2))}</td>` +
+        `<td><button class="btn-backtest-load" data-backtest-id="${escHtml(item.id)}">Load</button></td>` +
+        `</tr>`;
+    }).join('');
+    container.innerHTML = `<table class="backtest-table"><thead><tr><th>Created</th><th>Strategy</th><th>Trades</th><th>Total PnL</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderValidationTrades(trades) {
+    const container = fundamentalsPane.querySelector('#VALIDATION_TRADES_CONTAINER');
+    if (!container) return;
+    if (!Array.isArray(trades) || trades.length === 0) {
+      container.innerHTML = '<p class="placeholder-sm">No validation trades are available for this cached backtest.</p>';
+      return;
+    }
+    const rows = trades.slice(0, 25).map(trade => `<tr>` +
+      `<td>${escHtml(trade.side || '—')}</td>` +
+      `<td>${escHtml(trade.entry_date || '—')}</td>` +
+      `<td>${escHtml(trade.exit_date || 'open')}</td>` +
+      `<td>${escHtml(String(trade.entry_price ?? '—'))}</td>` +
+      `<td>${escHtml(trade.pnl == null ? '—' : Number(trade.pnl).toFixed(2))}</td>` +
+      `</tr>`).join('');
+    container.innerHTML = `<table class="trades-table"><thead><tr><th>Side</th><th>Entry</th><th>Exit</th><th>Entry Price</th><th>PnL</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function setAccordionOpen(sectionId, isOpen) {
+    const item = fundamentalsPane.querySelector(`.accordion-item[data-accordion="${sectionId}"]`);
+    if (!item) return;
+    item.classList.toggle('open', Boolean(isOpen));
+  }
+
+  function computeChartWindow(payload) {
+    const chart = payload?.chart || {};
+    if (chart.mode === 'trade_context' && chart.start && chart.end) {
+      return {mode: 'trade_context', start: chart.start, end: chart.end};
+    }
+    if (chart.start && chart.end) {
+      return {mode: 'fallback_30d', start: chart.start, end: chart.end};
+    }
+    const trades = Array.isArray(payload?.trades) ? payload.trades : [];
+    const entryDate = trades.map(t => t?.entry_date).find(Boolean);
+    const today = new Date();
+    if (entryDate) {
+      const opened = new Date(entryDate);
+      const tradeStart = new Date(opened.getTime() - (5 * 24 * 60 * 60 * 1000));
+      const minStart = new Date(today.getTime() - (29 * 24 * 60 * 60 * 1000));
+      const start = tradeStart < minStart ? tradeStart : minStart;
+      return {mode: 'trade_context', start: start.toISOString().slice(0, 10), end: today.toISOString().slice(0, 10)};
+    }
+    const start = new Date(today.getTime() - (29 * 24 * 60 * 60 * 1000));
+    return {mode: 'fallback_30d', start: start.toISOString().slice(0, 10), end: today.toISOString().slice(0, 10)};
+  }
+
+  function _buildSvgPolyline(values, minVal, maxVal, width, height) {
+    const finiteValues = values.map(v => (typeof v === 'number' ? v : null));
+    const span = Math.max(1, maxVal - minVal);
+    const stepX = finiteValues.length > 1 ? width / (finiteValues.length - 1) : width;
+    return finiteValues.map((value, idx) => {
+      if (value == null) return null;
+      const x = idx * stepX;
+      const y = height - (((value - minVal) / span) * (height - 12)) - 6;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).filter(Boolean).join(' ');
+  }
+
+  function renderPerformanceChart(payload) {
+    const container = fundamentalsPane.querySelector('#PERFORMANCE_CHART_CONTAINER');
+    const status = fundamentalsPane.querySelector('#PERFORMANCE_STATUS');
+    if (!container || !status) return;
+
+    const chart = payload?.chart || {};
+    const dates = Array.isArray(chart.dates) ? chart.dates : [];
+    const price = Array.isArray(chart.price) ? chart.price : [];
+    const smaLow = Array.isArray(chart?.indicators?.sma_low) ? chart.indicators.sma_low : [];
+    const smaHigh = Array.isArray(chart?.indicators?.sma_high) ? chart.indicators.sma_high : [];
+    const windowInfo = computeChartWindow(payload);
+    status.textContent = `${windowInfo.mode === 'trade_context' ? 'Trade-context' : '30-day fallback'} window: ${windowInfo.start} → ${windowInfo.end}`;
+
+    if (!dates.length || !price.length) {
+      container.innerHTML = '<p class="placeholder-sm">No performance series available for the selected backtest.</p>';
+      return;
+    }
+
+    const indicatorValues = smaLow.concat(smaHigh).filter(v => typeof v === 'number');
+    const allValues = price.concat(indicatorValues);
+    const minVal = Math.min(...allValues);
+    const maxVal = Math.max(...allValues);
+    const width = 720;
+    const height = 220;
+    const pricePoints = _buildSvgPolyline(price, minVal, maxVal, width, height);
+    const lowPoints = _buildSvgPolyline(smaLow, minVal, maxVal, width, height);
+    const highPoints = _buildSvgPolyline(smaHigh, minVal, maxVal, width, height);
+    const showIndicators = Boolean(lowPoints || highPoints);
+    const note = showIndicators ? '' : '<div class="chart-note">Price-only view: indicator series are missing for this backtest.</div>';
+
+    container.innerHTML =
+      `<div class="chart-legend">` +
+        `<span><span class="legend-swatch" style="background:#1a73e8"></span>Price</span>` +
+        `<span><span class="legend-swatch" style="background:#e67e22"></span>SMA Low</span>` +
+        `<span><span class="legend-swatch" style="background:#0f9d58"></span>SMA High</span>` +
+      `</div>` +
+      note +
+      `<svg class="performance-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">` +
+        `<polyline fill="none" stroke="#1a73e8" stroke-width="2" points="${pricePoints}"></polyline>` +
+        (lowPoints ? `<polyline fill="none" stroke="#e67e22" stroke-width="1.8" points="${lowPoints}"></polyline>` : '') +
+        (highPoints ? `<polyline fill="none" stroke="#0f9d58" stroke-width="1.8" points="${highPoints}"></polyline>` : '') +
+      `</svg>` +
+      `<div class="chart-axis-labels"><span>${escHtml(dates[0])}</span><span>${escHtml(dates[dates.length - 1])}</span></div>`;
+  }
+
+  async function handleCachedBacktestPostLoad(payload) {
+    activeBacktestPayload = payload || null;
+    window.__mdcBacktestState = activeBacktestPayload;
+    Promise.resolve().then(() => {
+      renderValidationTrades(activeBacktestPayload?.trades || []);
+      renderPerformanceChart(activeBacktestPayload || {});
+      setAccordionOpen('performance', true);
+    });
+  }
+
+  function _wireBacktestControls(instrumentId, ticker) {
+    fundamentalsPane.querySelectorAll('.accordion-toggle').forEach(btn => {
+      btn.onclick = () => {
+        const target = btn.dataset.target;
+        const item = fundamentalsPane.querySelector(`.accordion-item[data-accordion="${target}"]`);
+        if (!item) return;
+        item.classList.toggle('open');
+      };
+    });
+
+    fundamentalsPane.querySelectorAll('.btn-backtest-load').forEach(btn => {
+      btn.onclick = async () => {
+        const items = _readCachedBacktests(ticker);
+        const selected = items.find(item => item.id === btn.dataset.backtestId);
+        if (!selected?.payload) return;
+        await handleCachedBacktestPostLoad(selected.payload);
+      };
+    });
+
+    fundamentalsPane.querySelectorAll('.btn-backtest-run').forEach(btn => {
+      btn.onclick = async () => {
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Running…';
+        try {
+          const res = await fetch(`/v1/trading-strategies/${encodeURIComponent(ticker)}/backtest-v2`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pos_usd: 100.0, max_trades: 200}),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const status = fundamentalsPane.querySelector('#PERFORMANCE_STATUS');
+            if (status) status.textContent = `Backtest run failed: ${escHtml(data.error || data.detail || 'HTTP ' + res.status)}`;
+            return;
+          }
+          _storeCachedBacktest(ticker, data);
+          _renderCachedBacktestTable(ticker);
+          _wireBacktestControls(instrumentId, ticker);
+          await handleCachedBacktestPostLoad(data);
+        } catch (e) {
+          const status = fundamentalsPane.querySelector('#PERFORMANCE_STATUS');
+          if (status) status.textContent = `Backtest run failed: ${escHtml(e.message)}`;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      };
+    });
+  }
+
   // ── Load fundamentals ──
   async function loadFundamentals(instrumentId, ticker, fullName) {
     fundamentalsPane.innerHTML = '<p class="placeholder">Loading…</p>';
@@ -600,8 +876,12 @@ _CONSOLE_HTML = """<!DOCTYPE html>
       fundamentalsPane.innerHTML =
         `<h2>${title}</h2><table>${rows}${launchDateRow}</table>` +
         `<div class="ohlcv-range-section"><h3>OHLCV Time Range</h3>${ohlcvRangeHtml}</div>` +
-        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '');
+        (ohlcvMatrixHtml ? `<div class="ohlcv-matrix-section">${ohlcvMatrixHtml}</div>` : '') +
+        _renderAssetDetailAnalysis(ticker);
       _wireOhlcvRowControls();
+      _renderCachedBacktestTable(ticker);
+      _wireBacktestControls(instrumentId, ticker);
+      setAccordionOpen('performance', false);
     } catch (e) {
       fundamentalsPane.innerHTML = `<p class="error">Error loading fundamentals: ${escHtml(e.message)}</p>`;
     }

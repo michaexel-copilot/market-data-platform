@@ -184,3 +184,25 @@ def test_asset_not_found_record_and_load(db_conn):
     record_not_found(db_conn, "other-asset", "eodhd", "1h", "https://eodhd.com/api/intraday/other-asset?interval=1h")
     assert ("other-asset", "eodhd") not in load_blocked(db_conn, "5m")
     assert ("other-asset", "eodhd") in load_blocked(db_conn, "1h")
+
+
+def test_ohlcv_price_sanity_constraint_rejects_zero_prices(db_conn):
+    with pytest.raises(Exception, match="ohlcv_price_sanity"):
+        db_conn.execute(
+            """
+            INSERT INTO ohlcv
+                (instrument_id, interval, ts, open, high, low, close, source, ingested_at, tick_1h)
+            VALUES ('TEST-BAD-ZERO', '1h', '2026-01-01T08:00:00Z', 0, 1, 0, 1, 'test', now(), 482145)
+            """
+        )
+
+
+def test_ohlcv_price_sanity_constraint_rejects_inconsistent_bounds(db_conn):
+    with pytest.raises(Exception, match="ohlcv_price_sanity"):
+        db_conn.execute(
+            """
+            INSERT INTO ohlcv
+                (instrument_id, interval, ts, open, high, low, close, source, ingested_at, tick_1h)
+            VALUES ('TEST-BAD-BOUNDS', '1h', '2026-01-01T09:00:00Z', 10, 9, 8, 10, 'test', now(), 482146)
+            """
+        )

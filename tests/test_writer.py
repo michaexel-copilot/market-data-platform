@@ -338,3 +338,46 @@ class TestWriterTickColumn:
             assert len(rows) == 1
             tick_1d = rows[0][-2]
             assert tick_1d is None, f"Expected tick_1d=None for interval={interval}, got {tick_1d}"
+
+
+class TestWriterSanityFiltering:
+    def test_skips_zero_priced_records(self):
+        ts = datetime(2026, 1, 1, 6, 0, 0, tzinfo=timezone.utc)
+        valid = _make_record("1h", ts)
+        invalid = OHLCVRecord(
+            instrument_id="TEST",
+            interval="1h",
+            ts=ts,
+            open=0.0,
+            high=1.0,
+            low=0.0,
+            close=1.0,
+            source="test",
+        )
+
+        rows = _captured_rows([valid, invalid])
+
+        assert len(rows) == 1
+        assert rows[0][3] == 1.0
+        assert rows[0][6] == 1.5
+
+    def test_returns_zero_when_all_records_are_invalid(self):
+        from market_data.ingestion import writer as writer_mod
+
+        ts = datetime(2026, 1, 1, 6, 0, 0, tzinfo=timezone.utc)
+        invalid = OHLCVRecord(
+            instrument_id="TEST",
+            interval="1h",
+            ts=ts,
+            open=10.0,
+            high=9.0,
+            low=8.0,
+            close=10.0,
+            source="test",
+        )
+
+        with patch.object(writer_mod, "get_connection") as get_connection:
+            written = writer_mod.write_ohlcv([invalid])
+
+        assert written == 0
+        get_connection.assert_not_called()

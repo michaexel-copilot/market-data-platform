@@ -76,6 +76,18 @@ def _upsert_data_available(conn, instrument_id: str, has_1h: bool = False, has_1
         )
 
 
+def _is_valid_ohlcv(open_: float, high: float, low: float, close: float) -> bool:
+    return (
+        open_ > 0
+        and high > 0
+        and low > 0
+        and close > 0
+        and high >= max(open_, close)
+        and low <= min(open_, close)
+        and low <= high
+    )
+
+
 # ---------------------------------------------------------------------------
 # Sub-commands
 # ---------------------------------------------------------------------------
@@ -97,20 +109,28 @@ def cmd_stage(args: argparse.Namespace) -> None:
         )
 
     rows = []
+    skipped_invalid = 0
     with file_path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             unix_ts = int(row["UNIX_TIMESTAMP"])
             volume_usd = row.get("VOLUME_USD", "").strip()
             volume_btc = row.get("VOLUME_BTC", "").strip()
+            open_ = float(row["OPEN"])
+            high = float(row["HIGH"])
+            close = float(row["CLOSE"])
+            low = float(row["LOW"])
+            if not _is_valid_ohlcv(open_, high, low, close):
+                skipped_invalid += 1
+                continue
             rows.append((
                 instrument_id,
                 unix_ts,
                 datetime.fromtimestamp(unix_ts, tz=timezone.utc),
-                float(row["OPEN"]),
-                float(row["HIGH"]),
-                float(row["CLOSE"]),
-                float(row["LOW"]),
+                open_,
+                high,
+                close,
+                low,
                 float(volume_usd) if volume_usd else None,
                 float(volume_btc) if volume_btc else None,
             ))
@@ -131,7 +151,7 @@ def cmd_stage(args: argparse.Namespace) -> None:
             )
             total += len(batch)
 
-    print(f"Staged {total} rows for {instrument_id}")
+    print(f"Staged {total} rows for {instrument_id}; skipped {skipped_invalid} invalid row(s)")
 
 
 def cmd_migrate(args: argparse.Namespace) -> None:
@@ -291,3 +311,7 @@ def main() -> None:
 
     args = parser.parse_args()
     args.func(args)
+
+
+if __name__ == "__main__":
+    main()

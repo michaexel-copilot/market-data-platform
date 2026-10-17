@@ -1,0 +1,11 @@
+# CryptoDataDownload pair name overrides: canonical instrument_id → CDD trading-pair symbol
+#
+# Convention: most assets follow {TICKER}USDT (e.g. BTC → BTCUSDT), matching the
+# "Binance_{PAIR}_1h.csv" files published at cryptodatadownload.com/cdd/.
+# Only list exceptions here (e.g. assets that trade against BTC or BUSD instead).
+#
+# Example entry:
+#   some_coin: SOMEBTC   ← trades against BTC, not USDT
+#
+# bitcoin maps to BTCUSDT by default — listed here for documentation clarity.
+bitcoin: BTCUSDT
