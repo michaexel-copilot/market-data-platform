@@ -64,6 +64,8 @@ Commit messages follow **Conventional Commits**:
 | `draw_all_charts.py` | Batch chart generator; `uv run draw-all-charts` |
 | `web.py` | FastAPI server; `uv run serve` → http://localhost:8000 |
 | `cmc_info.py` | CoinMarketCap metadata fetcher |
+| `ohlcv_backfill.py` | TimescaleDB OHLCV backfill; `uv run backfill --help`, see `docs/ohlcv-backfill.md` |
+| `seed/backfill_symbols.csv` | Coin slug → exchange symbol map for the backfill |
 | `cache/ohlcv/` | Daily OHLCV disk cache (`{key}_{date}.json`) |
 | `cache/cmc_info/` | Daily CMC info disk cache (`{symbol}_{date}.json`) |
 | `png/` | Generated chart PNGs (gitignored) |
