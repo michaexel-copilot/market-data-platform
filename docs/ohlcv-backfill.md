@@ -5,8 +5,19 @@
 | Quelle (`ohlcv.source`) | Befehl | Historie |
 |---|---|---|
 | `okx`: OKX `history-candles` | `backfill okx` | mehrere Jahre, 100 Kerzen pro Call |
+| `kraken`: Kraken OHLCVT-Dump (ZIP aus dem Kraken Support Center) | `backfill kraken --zip …` | ab erstem Trade je Paar, quartalsweise aktualisiert |
 
-Binance Public Data ist nicht enthalten: die Binance Vision Dataset Terms v1.0 (26.08.2026) verbieten Firmen-Backtest und Firmen-Handel ausdrücklich (Klausel 4.1/4.2, siehe HED-159). Der Kraken-OHLCVT-Dump und Hyperliquid `candleSnapshot` waren im ursprünglichen PR #4 enthalten, fehlen hier aber, bis das Board die Katalogänderung (HED-159/HED-10) entschieden hat. Sie können in einer eigenen Folge-PR nachgezogen werden, sobald das vorliegt.
+Binance Public Data ist nicht enthalten: die Binance Vision Dataset Terms v1.0 (26.08.2026) verbieten Firmen-Backtest und Firmen-Handel ausdrücklich (Klausel 4.1/4.2, siehe HED-159, Q17 — nicht freigegeben). Hyperliquid `candleSnapshot` war im ursprünglichen PR #4 enthalten, fehlt hier aber (CRO-Veto HED-154) und ist nicht Teil dieses Loaders.
+
+Kraken ist mit der Board-Entscheidung vom 18.10.2026 freigegeben (HED-159, Q6 → D3, "freigegeben mit Auflagen"). Der **Kraken-Live-ccxt-Fallback bleibt gesperrt** (Q6b) — dieser Loader liest ausschließlich eine lokale OHLCVT-Dump-ZIP, nie einen Live-Endpunkt.
+
+### Drei CRO-Auflagen (HED-160) für die Nutzung der vertieften Historie
+
+Keine der drei Auflagen hält diesen Code oder seine Abnahme auf. Sie gelten für die **Nutzung** der Daten, die der Loader schreibt:
+
+1. **Übergangsmessung an den Quellennähten.** Vor jedem S1-Ergebnis, das auf der vertieften Historie beruht, muss eine Messung an den Übergangspunkten Binance-USDT → Kraken-USD → OKX-USDT/USDC nach dem Muster von HED-131 vorliegen (Zahl, nicht Vermutung). Bis dahin muss jede Auswertung die `source`-Spalte aktiv auswerten (Filterung oder Sensitivitätsrechnung je Quellenabschnitt) — nicht nur mitführen. Verantwortlich: wer das S1-Ergebnis baut (Quant Researcher / Model Validator).
+2. **Survivorship-Ausweis, getrennt.** Jedes S1-Ergebnis auf Basis der vertieften Historie muss die Kennzahlen zusätzlich für den Teilzeitraum ohne Binance/Kraken-Anteil (nur OKX) ausweisen, oder den Anteil der Equity-Kurve/Tage benennen, der auf der vertieften Vor-OKX-Historie beruht. Verantwortlich: wer das S1-Ergebnis baut.
+3. **„Kein Handel" vs. „nicht geladen".** Kraken-CSV lässt Intervalle ohne Handel einfach aus, ohne Kennzeichnung. Vor Produktivbetrieb des Kraken-Pfads muss diese Unterscheidung technisch sichtbar gemacht werden (z. B. Abgleich gegen erwartete Intervalle, ähnlich den bestehenden Coverage-Views). **Dieser Loader implementiert das noch nicht** — offener Folgepunkt, Verantwortlich: Trading Systems Engineer.
 
 ## So schreibt der Loader
 
@@ -33,7 +44,7 @@ backfill init-views        # legt nur die Views backfill_coverage und backfill_g
 
 ## Welche Instrumente
 
-`seed/backfill_symbols.csv` ordnet jeder `instrument_id` (wie in `instruments`) das OKX-Symbol zu. Eine leere Zelle bedeutet, dass das Instrument dort nicht geladen wird. Kontrakte mit anderem Kontraktwert (z. B. `kPEPE`) bleiben bewusst leer, weil die Preise sonst um den Faktor 1000 abweichen.
+`seed/backfill_symbols.csv` ordnet jeder `instrument_id` (wie in `instruments`) das Symbol je Börse zu. Eine leere Zelle bedeutet, dass das Instrument dort nicht geladen wird. Kontrakte mit anderem Kontraktwert (z. B. `kPEPE`) bleiben bewusst leer, weil die Preise sonst um den Faktor 1000 abweichen.
 
 ## Erstbefüllung
 
@@ -41,8 +52,11 @@ backfill init-views        # legt nur die Views backfill_coverage und backfill_g
 backfill okx --interval 1h --start 2019-01-01 --coins bitcoin   # Smoke-Test
 backfill okx --interval 1h --start 2019-01-01
 backfill okx --interval 1d --start 2019-01-01
+backfill kraken --zip ~/Downloads/Kraken_OHLCVT.zip --intervals 1h,1d
 backfill coverage > coverage.csv
 ```
+
+Reihenfolge: OKX zuerst laden, danach Kraken für die Zeit davor — pro Zeitstempel wird nur eine Kerze gespeichert, wer zuerst lädt, gewinnt (`ON CONFLICT DO NOTHING`).
 
 ## Täglicher Lauf (Cron)
 

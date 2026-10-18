@@ -4,11 +4,33 @@ free sources.
 
 Sources (value written to ohlcv.source):
   okx          OKX REST /api/v5/market/history-candles, paged backwards
+  kraken       Kraken's downloadable OHLCVT dump (a local ZIP, full history per pair)
 
-Binance Public Data is not included: its Dataset Terms forbid company backtest/trading
-use (see HED-159). Kraken's OHLCVT dump and the Hyperliquid candleSnapshot are not
-included either, pending a separate board decision on the data-source catalogue
-(HED-159/HED-10); they were part of the original PR #4 and may follow in a later PR.
+Binance Public Data and the Hyperliquid candleSnapshot are not included. Binance: its
+Dataset Terms forbid company backtest/trading use (HED-159, Q17 — not freigegeben).
+Hyperliquid: out of scope for this loader, see CRO veto HED-154.
+
+Kraken is freigegeben mit Auflagen (Board-Entscheidung 18.10.2026, HED-159 Q6 -> D3).
+Three CRO conditions from the HED-160 hearing apply before the deepened history may
+feed an S1 result shown to the Board:
+  1. Transition measurement at the Binance-USDT/Kraken-USD/OKX-USDT-USDC source seams
+     (pattern HED-131), before any S1 result relies on mixed-source history. Until
+     that measurement exists, every evaluation must actively account for the
+     `source` column (filter or per-segment sensitivity check), not just carry it.
+  2. Every S1 result using the deepened history must separately report metrics for
+     the OKX-only sub-period, or explicitly state the equity-curve/day share that
+     rests on the pre-OKX history (survivorship bias grows with depth).
+  3. Kraken gaps must be made distinguishable between "no trade in that interval"
+     and "not loaded yet" before the Kraken path goes into production use. This
+     loader does NOT yet implement that distinction (see docs/ohlcv-backfill.md) --
+     tracked as a follow-up, open as of this PR.
+None of the three conditions gates this loader's code or review; they gate how the
+data it produces may be used. Conditions 1-2 are the responsibility of whoever builds
+the S1 result (Quant Researcher / Model Validator); condition 3 is a loader feature
+still to be built (Trading Systems Engineer).
+
+The Kraken *live* ccxt fallback stays locked (HED-159 Q6b) -- this loader only reads a
+local OHLCVT dump ZIP, it never calls a live Kraken endpoint.
 
 Rows go into ohlcv keyed by its primary key (instrument_id, interval, ts) with
 ON CONFLICT DO NOTHING: an existing candle from any source is never overwritten, the
@@ -22,6 +44,7 @@ missing from `instruments` are skipped.
 CLI (uv run backfill --help):
   backfill init-views                          create backfill_coverage / backfill_gaps
   backfill okx      --coins bitcoin --interval 1h --start 2019-01-01
+  backfill kraken   --zip ~/Downloads/Kraken_OHLCVT.zip --coins bitcoin,ethereum
   backfill update   --days 3                   daily increment for all mapped coins
   backfill coverage                            print depth / fill ratio per series
 
@@ -29,9 +52,11 @@ Database connection comes from DATABASE_URL (libpq URL).
 """
 import argparse
 import csv
+import io
 import os
 import sys
 import time
+import zipfile
 from collections.abc import Iterable, Iterator
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -50,9 +75,11 @@ OKX_HISTORY_URL = "https://www.okx.com/api/v5/market/history-candles"
 
 # OKX bar names; "1Dutc" keeps daily candles aligned to UTC midnight ("1D" is UTC+8).
 OKX_BARS = {"1m": "1m", "5m": "5m", "1h": "1H", "1d": "1Dutc"}
+# Kraken dump file suffix (minutes) -> our interval
+KRAKEN_MINUTES = {1: "1m", 5: "5m", 60: "1h", 1440: "1d"}
 # ohlcv.source -> data_source.short_name, for flagging ohlcv_data_available.
-# Empty for now: OKX does not have a data_source row yet.
-DATA_SOURCE_SHORT_NAMES: dict[str, str] = {}
+# OKX does not have a data_source row yet; Kraken's is "kraken_hist".
+DATA_SOURCE_SHORT_NAMES: dict[str, str] = {"kraken": "kraken_hist"}
 
 HTTP_TIMEOUT = 30
 
@@ -134,6 +161,33 @@ def fetch_okx(inst_id: str, interval: str, start: datetime, end: datetime,
         yield from (c for c in parse_okx_rows(rows) if c.ts.timestamp() * 1000 >= start_ms)
         after = int(rows[-1][0])        # newest first, so the last row is the oldest
         time.sleep(0.11)
+
+
+# ---------------------------------------------------------------------------
+# Kraken OHLCVT dump
+# ---------------------------------------------------------------------------
+
+def parse_kraken_csv(text: str) -> Iterator[Candle]:
+    """Kraken dump CSV without header: time(s), o, h, l, c, volume, trades."""
+    for row in csv.reader(io.StringIO(text)):
+        if not row:
+            continue
+        yield Candle(
+            ts=datetime.fromtimestamp(int(row[0]), tz=timezone.utc),
+            open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]),
+            volume=float(row[5]), trade_count=int(row[6]),
+        )
+
+
+def kraken_members(zf: zipfile.ZipFile, pair: str) -> dict[str, str]:
+    """interval -> member name for files like 'XBTUSD_60.csv' (any folder depth)."""
+    found = {}
+    for name in zf.namelist():
+        stem = Path(name).stem
+        p, _, minutes = stem.rpartition("_")
+        if p == pair and minutes.isdigit() and int(minutes) in KRAKEN_MINUTES:
+            found[KRAKEN_MINUTES[int(minutes)]] = name
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +324,15 @@ def cmd_okx(args: argparse.Namespace) -> None:
             _load(conn, instrument_id, args.interval, "okx", fetch_okx(inst, args.interval, start, end, session))
 
 
+def cmd_kraken(args: argparse.Namespace) -> None:
+    wanted = set(args.intervals.split(","))
+    with zipfile.ZipFile(args.zip) as zf, connect() as conn:
+        for instrument_id, pair in _targets(conn, args.coins, "kraken"):
+            for interval, member in sorted(kraken_members(zf, pair).items()):
+                if interval in wanted:
+                    _load(conn, instrument_id, interval, "kraken", parse_kraken_csv(zf.read(member).decode()))
+
+
 def cmd_update(args: argparse.Namespace) -> None:
     """Daily increment: the last N days from every source each instrument is mapped to."""
     end = datetime.now(timezone.utc)
@@ -303,6 +366,12 @@ def main(argv: list[str] | None = None) -> None:
     o.add_argument("--interval", default="1h", choices=intervals)
     o.add_argument("--start", default="2018-01-01")
     o.set_defaults(func=cmd_okx)
+
+    k = sub.add_parser("kraken", help="Kraken OHLCVT dump ZIP")
+    k.add_argument("--zip", required=True, type=Path)
+    k.add_argument("--coins", help=coins_help)
+    k.add_argument("--intervals", default="1m,5m,1h,1d")
+    k.set_defaults(func=cmd_kraken)
 
     u = sub.add_parser("update", help="daily increment for all mapped instruments")
     u.add_argument("--coins", help=coins_help)

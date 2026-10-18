@@ -3,7 +3,9 @@ Tests for ohlcv_backfill.py: source parsers, file/page planning and pagination.
 No network and no database: HTTP sessions are mocked.
 """
 import sys
+import zipfile
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -43,8 +45,24 @@ def test_okx_pages_backwards_and_drops_open_candle(monkeypatch):
     assert session.get.call_args_list[0].kwargs["params"]["bar"] == "1H"
 
 
-def test_symbol_map_seed_is_okx_only():
+def test_kraken_members_and_parse():
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("Kraken_OHLCVT/XBTUSD_60.csv", "1381095000,122.0,122.5,121.9,122.3,0.5,3\n")
+        zf.writestr("Kraken_OHLCVT/XBTUSD_1440.csv", "1381017600,122.0,123,120,122.3,10,30\n")
+        zf.writestr("Kraken_OHLCVT/XBTUSDT_60.csv", "")
+        zf.writestr("Kraken_OHLCVT/XBTUSD_720.csv", "")
+    with zipfile.ZipFile(buf) as zf:
+        members = ob.kraken_members(zf, "XBTUSD")
+        assert members == {"1h": "Kraken_OHLCVT/XBTUSD_60.csv", "1d": "Kraken_OHLCVT/XBTUSD_1440.csv"}
+        (c,) = ob.parse_kraken_csv(zf.read(members["1h"]).decode())
+    assert c.ts == datetime.fromtimestamp(1381095000, tz=UTC) and c.trade_count == 3
+
+
+def test_symbol_map_seed_is_okx_and_kraken_only():
     symbols = ob.load_symbol_map()
     assert symbols["bitcoin"]["okx"] == "BTC-USDT"
-    assert "binance" not in symbols["bitcoin"] and "kraken" not in symbols["bitcoin"]
+    assert symbols["bitcoin"]["kraken"] == "XBTUSD"
+    assert "binance" not in symbols["bitcoin"] and "hyperliquid" not in symbols["bitcoin"]
+    assert "kraken" not in symbols["bnb"]   # bnb has no Kraken listing, cell stays empty
     assert ob._select(symbols, "bitcoin,ethereum", "okx") == [("bitcoin", "BTC-USDT"), ("ethereum", "ETH-USDT")]

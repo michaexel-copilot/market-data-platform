@@ -57,8 +57,6 @@ CREATE TABLE ohlcv (
 SELECT create_hypertable('ohlcv', 'ts');
 
 INSERT INTO instruments VALUES ('bitcoin', 'BTC', 'crypto'), ('ethereum', 'ETH', 'crypto');
--- Stands in for a future source with a data_source row (OKX does not have one yet,
--- see docs/ohlcv-backfill.md); only used by test_upsert_fills_ticks_and_never_overwrites
--- and test_daily_and_minute_ticks via DATA_SOURCE_SHORT_NAMES["demo"].
+-- OKX has no data_source row yet, see docs/ohlcv-backfill.md.
 INSERT INTO data_source (name, short_name, base_url) VALUES
-    ('Demo Source', 'demo_hist', 'https://example.invalid');
+    ('Kraken Historical', 'kraken_hist', 'https://support.kraken.com');

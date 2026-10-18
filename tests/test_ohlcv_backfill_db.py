@@ -48,16 +48,13 @@ def _candles(start, n, step=timedelta(hours=1)):
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def test_upsert_fills_ticks_and_never_overwrites(conn, monkeypatch):
-    # "demo" stands in for any source with a data_source row; OKX (the only real
-    # source in this narrower build) does not have one yet, see docs/ohlcv-backfill.md.
-    monkeypatch.setitem(ob.DATA_SOURCE_SHORT_NAMES, "demo", "demo_hist")
+def test_upsert_fills_ticks_and_never_overwrites(conn):
     conn.execute("INSERT INTO ohlcv (instrument_id, interval, ts, open, high, low, close, source, tick_1h) "
                  "VALUES ('bitcoin', '1h', %s, 9, 9, 9, 9, 'eodhd', %s)", (T0, int(T0.timestamp()) // 3600))
     conn.commit()
-    n, skipped = ob.upsert(conn, "bitcoin", "1h", "demo", _candles(T0, 48), batch_size=10)
+    n, skipped = ob.upsert(conn, "bitcoin", "1h", "kraken", _candles(T0, 48), batch_size=10)
     assert (n, skipped) == (47, 0)                       # the eodhd candle stays
-    assert ob.upsert(conn, "bitcoin", "1h", "demo", _candles(T0, 48)) == (0, 0)
+    assert ob.upsert(conn, "bitcoin", "1h", "kraken", _candles(T0, 48)) == (0, 0)
 
     first = conn.execute("SELECT source, close FROM ohlcv WHERE ts = %s", (T0,)).fetchone()
     assert first == ("eodhd", 9)
@@ -65,13 +62,12 @@ def test_upsert_fills_ticks_and_never_overwrites(conn, monkeypatch):
     assert tick == int(T0.timestamp()) // 3600 + 5
 
     flags = conn.execute("SELECT has_1h, has_1d FROM ohlcv_data_available a JOIN data_source s "
-                         "USING (data_source_id) WHERE short_name = 'demo_hist'").fetchone()
+                         "USING (data_source_id) WHERE short_name = 'kraken_hist'").fetchone()
     assert flags == (True, False)
 
 
-def test_daily_and_minute_ticks(conn, monkeypatch):
-    monkeypatch.setitem(ob.DATA_SOURCE_SHORT_NAMES, "demo", "demo_hist")
-    ob.upsert(conn, "bitcoin", "1d", "demo", _candles(T0, 3, timedelta(days=1)))
+def test_daily_and_minute_ticks(conn):
+    ob.upsert(conn, "bitcoin", "1d", "kraken", _candles(T0, 3, timedelta(days=1)))
     ob.upsert(conn, "bitcoin", "1m", "okx", _candles(T0, 3, timedelta(minutes=1)))
     rows = conn.execute("SELECT interval, min(tick_1d), min(tick_1m) FROM ohlcv GROUP BY interval "
                         "ORDER BY interval").fetchall()
