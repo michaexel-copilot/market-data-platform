@@ -1,0 +1,50 @@
+"""
+Tests for ohlcv_backfill.py: source parsers, file/page planning and pagination.
+No network and no database: HTTP sessions are mocked.
+"""
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import MagicMock
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+import ohlcv_backfill as ob  # noqa: E402
+
+UTC = timezone.utc
+
+
+def _resp(json_body=None, status_code=200, content=b""):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_body
+    resp.content = content
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+def test_okx_pages_backwards_and_drops_open_candle(monkeypatch):
+    h = 3_600_000
+    t0 = 1_700_000_000_000 - 1_700_000_000_000 % h
+    page1 = [[str(t0 + 2 * h), "3", "3", "3", "3", "1", "1", "3", "0"],     # still open
+             [str(t0 + h), "2", "2", "2", "2", "1", "1", "2", "1"]]
+    page2 = [[str(t0), "1", "1", "1", "1", "2", "2", "2", "1"]]
+    session = MagicMock()
+    session.get.side_effect = [_resp({"code": "0", "data": page1}),
+                               _resp({"code": "0", "data": page2}),
+                               _resp({"code": "0", "data": []})]
+    monkeypatch.setattr(ob.time, "sleep", lambda s: None)
+    candles = list(ob.fetch_okx("BTC-USDT", "1h", ob._utc(t0 - h), ob._utc(t0 + 3 * h), session))
+    assert [c.close for c in candles] == [2.0, 1.0]
+    assert candles[1].vwap == 1.0
+    afters = [call.kwargs["params"]["after"] for call in session.get.call_args_list]
+    assert afters[1] == t0 + h and afters[2] == t0
+    assert session.get.call_args_list[0].kwargs["params"]["bar"] == "1H"
+
+
+def test_symbol_map_seed_is_okx_only():
+    symbols = ob.load_symbol_map()
+    assert symbols["bitcoin"]["okx"] == "BTC-USDT"
+    assert "binance" not in symbols["bitcoin"] and "kraken" not in symbols["bitcoin"]
+    assert ob._select(symbols, "bitcoin,ethereum", "okx") == [("bitcoin", "BTC-USDT"), ("ethereum", "ETH-USDT")]
