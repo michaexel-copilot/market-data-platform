@@ -293,6 +293,19 @@ def _parse_day(s: str) -> date:
     return date.fromisoformat(s + "-01" if len(s) == 7 else s)
 
 
+def _interval_list(value: str) -> list[str]:
+    """argparse type for comma-separated --intervals: every entry must be a known interval.
+
+    Without this, an unvalidated interval reaches mark_available()'s f-string column name
+    (col = f"has_{interval}") -- a SQL injection path the moment a source using it gets a
+    data_source row (HED-168, CRO Nachforderung on HED-167 PR #5)."""
+    values = value.split(",")
+    unknown = [v for v in values if v not in INTERVAL_SECONDS]
+    if unknown:
+        raise argparse.ArgumentTypeError(f"unknown interval(s) {unknown}; choices: {list(INTERVAL_SECONDS)}")
+    return values
+
+
 def _targets(conn, coins: str | None, source: str) -> list[tuple[str, str]]:
     """Mapped (instrument_id, symbol) pairs for a source, minus ids missing in `instruments`."""
     pairs = _select(load_symbol_map(), coins, source)
@@ -325,7 +338,7 @@ def cmd_okx(args: argparse.Namespace) -> None:
 
 
 def cmd_kraken(args: argparse.Namespace) -> None:
-    wanted = set(args.intervals.split(","))
+    wanted = set(args.intervals)
     with zipfile.ZipFile(args.zip) as zf, connect() as conn:
         for instrument_id, pair in _targets(conn, args.coins, "kraken"):
             for interval, member in sorted(kraken_members(zf, pair).items()):
@@ -339,7 +352,7 @@ def cmd_update(args: argparse.Namespace) -> None:
     start = end - timedelta(days=args.days)
     session = requests.Session()
     with connect() as conn:
-        for interval in args.intervals.split(","):
+        for interval in args.intervals:
             for instrument_id, sym in _targets(conn, args.coins, "okx"):
                 _load(conn, instrument_id, interval, "okx", fetch_okx(sym, interval, start, end, session))
 
@@ -370,13 +383,13 @@ def main(argv: list[str] | None = None) -> None:
     k = sub.add_parser("kraken", help="Kraken OHLCVT dump ZIP")
     k.add_argument("--zip", required=True, type=Path)
     k.add_argument("--coins", help=coins_help)
-    k.add_argument("--intervals", default="1m,5m,1h,1d")
+    k.add_argument("--intervals", default="1m,5m,1h,1d", type=_interval_list)
     k.set_defaults(func=cmd_kraken)
 
     u = sub.add_parser("update", help="daily increment for all mapped instruments")
     u.add_argument("--coins", help=coins_help)
     u.add_argument("--days", type=int, default=3)
-    u.add_argument("--intervals", default="1h,1d")
+    u.add_argument("--intervals", default="1h,1d", type=_interval_list)
     u.set_defaults(func=cmd_update)
 
     sub.add_parser("coverage", help="depth and fill ratio per series as CSV").set_defaults(func=cmd_coverage)

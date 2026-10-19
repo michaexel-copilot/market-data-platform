@@ -9,6 +9,8 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -66,3 +68,37 @@ def test_symbol_map_seed_is_okx_and_kraken_only():
     assert "binance" not in symbols["bitcoin"] and "hyperliquid" not in symbols["bitcoin"]
     assert "kraken" not in symbols["bnb"]   # bnb has no Kraken listing, cell stays empty
     assert ob._select(symbols, "bitcoin,ethereum", "okx") == [("bitcoin", "BTC-USDT"), ("ethereum", "ETH-USDT")]
+
+
+# --- --intervals validation (HED-168: unvalidated interval reaches an f-string column
+# name in mark_available(), a SQL injection path once a source using it has a data_source
+# row) ---------------------------------------------------------------------------------
+
+def test_update_rejects_unknown_interval(monkeypatch):
+    monkeypatch.setattr(ob, "cmd_update", lambda args: pytest.fail("must not reach cmd_update"))
+    with pytest.raises(SystemExit):
+        ob.main(["update", "--intervals", "1h,bogus"])
+
+
+def test_update_accepts_known_intervals(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ob, "cmd_update", lambda args: captured.setdefault("intervals", args.intervals))
+    ob.main(["update", "--intervals", "1h,1d"])
+    assert captured["intervals"] == ["1h", "1d"]
+
+
+def test_update_default_intervals_parse_too():
+    assert ob._interval_list("1h,1d") == ["1h", "1d"]
+
+
+def test_kraken_rejects_unknown_interval(monkeypatch):
+    monkeypatch.setattr(ob, "cmd_kraken", lambda args: pytest.fail("must not reach cmd_kraken"))
+    with pytest.raises(SystemExit):
+        ob.main(["kraken", "--zip", "x.zip", "--intervals", "1h,bogus"])
+
+
+def test_kraken_accepts_known_intervals(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ob, "cmd_kraken", lambda args: captured.setdefault("intervals", args.intervals))
+    ob.main(["kraken", "--zip", "x.zip", "--intervals", "1h,1d"])
+    assert captured["intervals"] == ["1h", "1d"]
