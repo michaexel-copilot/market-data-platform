@@ -98,7 +98,7 @@ Shows metadata for the selected asset assembled from CoinMarketCap and CoinGecko
 | **Launched** | CoinMarketCap | Token launch date (YYYY-MM-DD) |
 | **ATH** | CoinGecko | All-time high price, the date it occurred, and % difference vs current price |
 | **ATL** | CoinGecko | All-time low price, the date it occurred, and % difference vs current price |
-| **OHLC Source** | Internal | Whether OHLCV data is fetched from EODHD, Yahoo Finance, or CoinGecko |
+| **OHLC Source** | Internal | Whether OHLCV data is fetched from Yahoo Finance or CoinGecko |
 | **Chain / Platform** | CoinMarketCap | Blockchain or platform the token lives on, with contract address if available |
 
 The asset name at the top is a clickable link to the CoinMarketCap page (when available).
@@ -109,7 +109,7 @@ The asset name at the top is a clickable link to the CoinMarketCap page (when av
 
 ### Chart
 
-The main chart shows **12 months of daily OHLC data** as a price line (close price) with three SMA overlays:
+The main chart shows **12 months of daily OHLC data** as a price line (close price) with three SMA overlays (7-day by default):
 
 | Line | Colour | Meaning |
 |------|--------|---------|
@@ -118,155 +118,69 @@ The main chart shows **12 months of daily OHLC data** as a price line (close pri
 | SMA Low | Green | Simple moving average of daily **lows** — the **strategy signal line** |
 | SMA Close | Purple | Simple moving average of daily closes |
 
-When a trade is highlighted (see Highlighting below):
-- **Short trade**: blue crosshairs (dashed) mark the entry and orange crosshairs (dashed) mark the exit
-- **Long trade**: green crosshairs (dotted) mark the entry and red crosshairs (dotted) mark the exit
+The three SMA lines use a fixed period of **7 days**. There is no input field for them in the interface; the periods can only be changed by adding `?sma=<days>&sma_high=<days>` to the asset URL. They are independent of the periods found by the backtest in the [Strategy Controls Panel](#5-strategy-controls-panel).
 
-Both highlights can be active simultaneously — switching between panels does not clear the other strategy's crosshairs.
+The chart is a static image. Trades cannot be highlighted on it.
 
-### SMA Period LOW and SL Short % (left column)
+### Strategy parameters
 
-The left column contains two controls for the **Short Strategy**:
-
-**SMA Period LOW** — controls the lookback window for the SMA Low and SMA Close signal lines.
-
-- **Default**: 7 days
-- **Range**: 1 – 500 days
-- Change by typing a number in the spinner, or using keyboard shortcuts (see [Keyboard Reference](#8-keyboard-reference))
-- The chart and trade table reload automatically when the value changes
-
-**SL Short %** — sets the stop-loss percentage for the Short Strategy.
-
-- **Default**: 10%
-- **Range**: 1% – 50%
-- A value of 10 means the short exits at a loss when the price rises 10% above the entry price
-
-### SMA Period HIGH and SL Long % (right column)
-
-The right column contains two controls for the **Long Strategy**:
-
-**SMA Period HIGH** — controls the lookback window for the SMA High signal line.
-
-- **Default**: 7 days
-- **Range**: 1 – 500 days
-- Same keyboard shortcuts as SMA Period LOW (spinner must be focused)
-- Changes reload the chart automatically
-
-**SL Long %** — sets the stop-loss percentage for the Long Strategy.
-
-- **Default**: 10%
-- **Range**: 1% – 50%
-- A value of 10 means the long exits at a loss when the price falls 10% below the entry price
-
-### Find Best SMA
-
-The **Find Best SMA** button searches all SMA LOW × SMA HIGH period combinations in the range 3–50 and selects the pair that maximises the combined average P&L per closed trade across both strategies.
-
-- **Auto-runs** when you select a ticker — no manual click needed
-- The search uses only the **first 80 % of available candles** (the *training window*) to score SMA pairs, avoiding overfitting to more recent data
-- Results are **always freshly calculated** — no caching — so you get an accurate result reflecting the current candle set
-- After the calculation completes, **the SMA Period LOW and SMA Period HIGH spinners are updated** to the winning values and the chart reloads automatically
-- You can also click the button manually at any time (e.g. after changing SL %)
-- A spinner indicator is shown on the button while the calculation runs (may take a few seconds)
-- Once complete, the strategy summary shows two clearly labelled sections (see [Strategy Summary](#strategy-summary) below)
-
-### Position Size
-
-Sets the hypothetical USD position size used to calculate P&L in the trade table.
-
-- **Default**: $100
-- **Minimum**: $100, in steps of $100
-- Changing the value reloads the trade table
+The SMA period spinners, stop-loss inputs, Position Size field and the **Find Best SMA** button no longer exist. The SMA periods are now found by the backtest optimiser; see [Backtest Controls](#5-strategy-controls-panel) below. The endpoint behind the old button (`GET /asset/{symbol}/best-sma`) is disabled and returns HTTP 410.
 
 ---
 
 ## 5. Strategy Controls Panel
 
-This panel (expanded by default) contains the SMA period spinners, stop-loss inputs, Position Size, the **Find Best SMA** button, and the short/long strategy summaries described in [Chart Panel](#4-chart-panel) above.
+This panel (expanded by default) contains the **Backtest Controls**. It optimises the indicator periods on a training window and then checks the best pair on a separate validation window.
 
-### Strategy Summary
+### Backtest Controls
 
-Above the Trades table, two summary rows show P&L statistics for the current SMA and stop-loss settings:
+| Control | Options | Meaning |
+|---------|---------|---------|
+| **Indicator 1** | Price (default), SMA, EMA | The fast line. With **Price**, the closing price itself is used and no period range is shown. With SMA or EMA, a **Min – Max** period range appears (1–500, default 1–200). |
+| **Indicator 2** | SMA (default), EMA | The slow line, always with a **Min – Max** period range (1–500, default 1–200). |
+| **Exposure** | Long+Cash (default), Short+Cash, Long+Short | Which side the strategy trades (see below). |
+| **Train start** / **Train end** | Dates, default 2020-01-01 – 2024-12-31 | The training window used to select the best periods. Train start is moved forward to the oldest available candle if the asset has no data that far back. |
+| **Validation start** | Date, default 2025-01-01 | First day of the validation window, which runs to the latest candle. |
 
-- **In-Sample (Optimisation)** — badge shown in grey when Find Best SMA has run. Displays the date range of the training window (first 80 % of candles used to select the best SMA pair). Shows closed trade count, total P&L, and average P&L per trade for the Short and Long strategies over that window.
-- **Out-of-Sample (Validation)** — badge shown in blue, separated by a horizontal rule. Displays the date range of the held-out validation window (last 20 % of candles). Shows the same statistics but for candles the optimiser never saw — this is the honest estimate of how the selected SMA performs on new data.
+**Exposure modes** (signals are crossovers of Indicator 1 and Indicator 2 on daily closes):
 
-When SMA values are set manually (without clicking Find Best SMA), only the overall summary is shown without the in-sample/out-of-sample split.
+- **Long+Cash** — buys when Indicator 1 crosses above Indicator 2 and exits to cash when it crosses back below.
+- **Short+Cash** — sells short when Indicator 1 crosses below Indicator 2 and exits to cash when it crosses back above.
+- **Long+Short** — always in the market: long while Indicator 1 is above Indicator 2, short while it is below, reversing on each crossover.
+
+A position is held for at least one bar. Each trade invests 99 % of the current account value, so gains and losses compound. The account starts with $1,000 at the beginning of each window (training and validation separately), and no commission is charged. Net P&L is the final account value minus $1,000, so a training P&L in the tens of thousands over several years is possible.
+
+### Running a backtest
+
+Click **Run Backtest**. A spinner is shown on the button while it runs.
+
+1. All period combinations in the Min – Max ranges are tested on the **training window**. The pair with the highest final equity wins. If the number of combinations exceeds 10,000, the periods are stepped to keep the search within that limit.
+2. The winning pair is then run once on the **validation window**, which the optimiser never saw. This is the honest estimate of how the pair performs on new data.
+
+Results for identical inputs are cached on disk, so repeating a run returns instantly (a first run with a 5–50 period range takes a few seconds).
+
+### Results
+
+- **Best Parameters Found** — the winning indicator types, periods and the exposure mode (shown as `long_cash`, `short_cash` or `long_short`).
+- **Training** and **Validation** cards — date range, number of trades, net P&L (green when positive, red when negative) and win rate. The Validation card also shows the **open position** (direction, entry date and price, current price, unrealised P&L), if there is one.
+- **Validation Trades** — click **Show trades** to expand the table of validation trades with direction, entry and exit date and price, and P&L. An open position is listed at the end, marked **OPEN**.
+
+### Cached Backtests
+
+Below the results, a table lists every cached backtest for the asset. Click a column header to sort. Columns: train start, train end, validation start, both indicators with their best periods (e.g. `Price`, `SMA-38`, `EMA-10`), exposure, training net P&L, validation net P&L (in `$`, green or red) and validation trades. Different settings are cached as separate rows.
+
+- **Load** — fills the form with that run's settings (the period range is set to the winning period) and shows its results.
+- **✕** — deletes the cached run.
 
 ---
 
 ## 6. Trades Panel
 
-Shows all short and long trades from the last 12 months in the unified trade table described in [Chart Panel](#4-chart-panel) above. Collapsed by default; click the header to expand.
+There is no separate trades panel any more. The old short and long strategies with stop-loss and the combined trade table (with Max Δ P&L and click-to-highlight) have been replaced by the backtest.
 
----
+Trades are shown in the **Validation Trades** table of the [Strategy Controls Panel](#5-strategy-controls-panel). It lists the trades of the best parameter pair on the validation window: direction, entry and exit date and price, and P&L. A position that is still open is listed last, marked **OPEN**, with its unrealised P&L. The table is collapsed by default; click **Show trades** to expand it.
 
-### Short Strategy — How It Works
-
-The strategy backtests a simple short-selling rule on the last 12 months of daily data:
-
-**Entry**: The daily close crosses **below** the SMA-Low line (it was ≥ SMA-Low yesterday and < SMA-Low today). A short position is opened at the closing price.
-
-**Exit — Stop Loss**: If the close rises to ≥ `(1 + SL Short % / 100)` × entry price, the position exits at that level (a loss).
-
-**Exit — Take Profit**: If the SMA-Low falls below the entry price and the current close is ≥ the current SMA-Low, the position exits at the current SMA-Low value (a profit).
-
-Only one position can be open at a time. Each new entry waits for the previous position to close.
-
-P&L is calculated as: `(entry_price − exit_price) / entry_price × position_size_usd`
-
-### Long Strategy — How It Works
-
-The strategy backtests a simple long-buying rule on the last 12 months of daily data:
-
-**Entry**: The daily close crosses **above** the SMA-High line (it was ≤ SMA-High yesterday and > SMA-High today). A long position is opened at the closing price.
-
-**Exit — Stop Loss**: If the close falls to ≤ `(1 − SL Long % / 100)` × entry price, the position exits at that level (a loss).
-
-**Exit — Take Profit**: If the SMA-High rises above the entry price and the current close is ≥ the current SMA-High, the position exits at the current SMA-High value (a profit).
-
-Only one position can be open at a time.
-
-P&L is calculated as: `(exit_price − entry_price) / entry_price × position_size_usd`
-
-### Trade Table
-
-All short and long trades from the last 12 months are shown in a **single unified table**, sorted by entry date descending (most recent first). Each row is colour-coded by direction:
-
-| Row colour | Direction |
-|------------|-----------|
-| Light red (`#ffe8e8`) | Short trade |
-| Light green (`#e8f5e8`) | Long trade |
-
-*Note: the P&L and Max Δ P&L columns retain only their text colour (green/red) and are not given the row background colour.*
-
-| Column | Description |
-|--------|------------|
-| **Dir** | ▼ Short or ▲ Long |
-| **#** | Signal number |
-| **Entry Date** | Date the position was entered |
-| **Entry $** | Price at entry (4 significant figures) |
-| **Exit Date** | Date the position closed (`—` if still open) |
-| **Exit $** | Price at exit (`—` if still open) |
-| **P&L** | Realised profit/loss in USD. Open positions show a live estimate prefixed with `~`. Green = profit, Red = loss, Blue = open |
-| **Max Δ P&L** | The worst unrealised P&L seen while the trade was open — see below |
-
-**Max Δ P&L details:**
-
-*Short strategy*: For **profit trades**: the maximum adverse excursion (how deep in the red the position went before turning profitable) — shown in red; ✓ (green) means the trade was never underwater. For **loss trades**: the maximum favourable excursion (the best unrealised gain before the stop-loss was hit) — shown in green; `—` means the trade was never profitable.
-
-*Long strategy*: Mirrored — adverse means price fell (shown in red), favourable means price rose (shown in green).
-
-Open trades show `—` in Max Δ P&L.
-
-**Strategy summaries** (above the table, always visible) show two compact blocks — one for Short, one for Long — each displaying:
-- **Trade count** — number of closed trades
-- **Total P&L** — sum of all closed-trade P&L (green = positive, red = negative)
-- **Avg P&L/trade** — Total P&L ÷ trade count
-
-**Highlighting a trade**: Click any row to redraw the chart with crosshairs at that trade's entry and exit. Short trades use blue (entry) and orange (exit) dashed crosshairs; long trades use green (entry) and red (exit) dotted crosshairs. Both strategies' highlights persist independently.
-
-If no signals were found in the last 12 months, a message is displayed instead of a table.
+Stop-loss levels and a free position size are not part of the backtest. Each trade invests 99 % of the current account value (starting at $1,000), so the P&L of later trades grows or shrinks with earlier results.
 
 ---
 
@@ -305,7 +219,7 @@ An interactive price chart using **~90 days** of data at the selected resolution
 - **Visible window**: the last **35 days** are shown by default on the x-axis
 - **Y-axis**: pinned so the **30D high sits at the 95% mark** and the **30D low sits at the 5% mark**, giving context to where the current price sits within the 30-day range
 - **Reference lines**: 30D, 7D, and 1D high (dashed) and low (dotted) are drawn as horizontal lines spanning their respective window
-- **Candlestick mode**: available when data comes from EODHD or Yahoo Finance (full OHLCV with real H/L). CoinGecko-sourced assets show a line chart instead (close-only data)
+- **Candlestick mode**: available when data comes from Yahoo Finance (full OHLCV with real H/L). CoinGecko-sourced assets show a line chart instead (close-only data)
 - The chart is interactive — hover to see exact values on the crosshair. Pan and zoom with the mouse wheel or by dragging
 
 ---
@@ -364,11 +278,11 @@ Price data is fetched automatically and cached to disk for the current day.
 
 | Source | Used when |
 |--------|-----------|
-| **EODHD** (local service) | Primary source for supported assets (currently BTC, ETH, ADA, ALGO, SKY). Provides true hourly OHLCV data from Oct 2020 with real high/low ranges. No external API calls — served by a local service at `http://localhost:8010`. |
-| **Yahoo Finance** | Default for assets not covered by EODHD. Provides full daily OHLCV (open, high, low, close, volume) from 2020-01-01. |
-| **CoinGecko** | For assets not listed on Yahoo Finance and not covered by EODHD (e.g. HYPE, SUI, MNT). Provides close-only daily data; the Performance chart shows a line chart. |
+| **EODHD** (local service) | **Decommissioned** (Board decision O1(c), HED-19, 2026-10-06). The local service at `http://localhost:8010` no longer runs and no symbol is routed to it. Historical EODHD rows remain in the database table `ohlcv`. |
+| **Yahoo Finance** | Default source. Provides full daily OHLCV (open, high, low, close, volume) from 2020-01-01. |
+| **CoinGecko** | For assets not listed on Yahoo Finance (e.g. HYPE, SUI, MNT). Provides close-only daily data; the Performance chart shows a line chart. |
 
-EODHD hourly candles are resampled to daily candles before use in charts and backtesting, so the interface remains consistent across all sources. The 4H and 1H resolution in the Performance tab uses native EODHD hourly data for covered symbols.
+To keep the market-data database (table `ohlcv`) up to date, use the OHLCV backfill loader (`ohlcv_backfill.py`, e.g. `backfill update --days 3 --intervals 1h,1d`); see `docs/ohlcv-backfill.md`.
 
 **K-prefix tokens** (KBONK, KPEPE, KSHIB, etc.) represent 1000 × the underlying coin. Prices are fetched from the underlying token and multiplied by 1000 automatically.
 
@@ -393,16 +307,7 @@ Performance tab prices are converted to EUR using an exchange rate fetched once 
 | `Escape` | Clear the filter box and focus it |
 | `↓` (from filter box) | Move focus to the first visible asset |
 
-### SMA Period LOW / HIGH and SL Short % / SL Long % Spinners (Strategy Controls panel, spinner must be focused)
-
-| Key | Change |
-|-----|--------|
-| `+` / `=` | +1 |
-| `-` | −1 |
-| `Shift` + `+` / `-` | ±5 |
-| `Ctrl` + `Shift` + `+` / `-` | ±10 |
-
-Shortcuts apply independently to whichever spinner is focused. The same key bindings work for all four spinners.
+The Backtest Controls use ordinary form fields and have no special keyboard shortcuts.
 
 ---
 
@@ -410,7 +315,7 @@ Shortcuts apply independently to whichever spinner is focused. The same key bind
 
 - **Market orders**: Executed at the current best bid/ask. Actual fill price may differ from the displayed last close, especially in thin markets.
 - **CoinGecko OHLC**: The Performance chart shows a line (close-only) for CoinGecko-sourced assets. High/Low values in the stats table reflect CoinGecko's daily OHLC candles, which use a different aggregation method than exchange data.
-- **Assets with no price data**: If neither EODHD, Yahoo Finance, nor CoinGecko has data for an asset, a warning is shown in place of the chart. The Performance and Place Order panels still function using other data sources.
+- **Assets with no price data**: If neither Yahoo Finance nor CoinGecko has data for an asset, a warning is shown in place of the chart. The Performance and Place Order panels still function using other data sources.
 - **Exchange rate**: The USD→EUR rate is refreshed once per day. Prices shown in EUR during the session reflect the rate at the time of the last refresh.
 - **Mainnet orders are irreversible**: Once confirmed, orders are sent directly to the Hyperliquid exchange. Always review the confirmation dialog before clicking Confirm.
 - **Testnet asset list**: The testnet list contains a subset of assets compared to mainnet. Not all mainnet assets are available for testnet trading.
